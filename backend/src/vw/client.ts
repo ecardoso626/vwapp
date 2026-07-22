@@ -1097,14 +1097,19 @@ interface ActivityRow {
   activityType?: string;
 }
 
-/** The car's recent activity log (commands, trips, alerts). Carnet-gated. */
+/**
+ * The car's recent activity log (commands, trips, alerts). Carnet-gated;
+ * pageNum is 0-indexed like the message center's (VERIFIED LIVE 2026-07-21:
+ * pageNum=1 skips past the newest pageSize events — an empty list when the
+ * whole history fits on one page).
+ */
 export async function vwGetActivity(
   carnetToken: string,
   uuid: string,
   pageSize: number,
 ): Promise<ActivityEvent[]> {
   const res = await fetch(
-    `${API}/history/activity/v1/vehicle/${uuid}?pageNum=1&pageSize=${String(pageSize)}`,
+    `${API}/history/activity/v1/vehicle/${uuid}?pageNum=0&pageSize=${String(pageSize)}`,
     {
       headers: {
         authorization: `Bearer ${carnetToken}`,
