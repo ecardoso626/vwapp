@@ -45,9 +45,14 @@ interface EndParts {
  * end time it also emits `endMs` so the caller can recompute minutes at
  * submit time (cancels clock drift while the sheet sits open).
  *
+ * Every change emits immediately — the sheet's Start button must submit
+ * whatever is on screen, even with the picker still open (dialing 15m and
+ * hitting Start without Use used to silently send the stale parent value).
+ * Use only collapses the picker to the pill; Cancel restores the value from
+ * before the picker was opened.
+ *
  * `includePresets={false}` (the Adjust flow) renders just the picker, opened
- * on the end-time tab seeded from `initialEndMs`, and emits on every change
- * instead of on Use.
+ * on the end-time tab seeded from `initialEndMs`.
  */
 export function DurationField({
   value,
@@ -63,7 +68,6 @@ export function DurationField({
   /** Freezes every control (chips, tabs, wheel, stepper) — e.g. mid-submit. */
   disabled?: boolean;
 }) {
-  const live = !includePresets;
   // The native wheel needs a resolved scheme so it follows the in-app theme
   // override rather than the system appearance.
   const { pref } = useThemeToggle();
@@ -111,19 +115,24 @@ export function DurationField({
             (Math.ceil(pickMin / DURATION_STEP) - 1) * DURATION_STEP,
           );
     setPickMin(next);
-    if (live) onChange(next);
+    onChange(next);
   };
 
   const updateParts = (next: EndParts) => {
     setEndParts(next);
-    if (live) emitEnd(nextOccurrence(next.hour, next.minute));
+    emitEnd(nextOccurrence(next.hour, next.minute));
   };
+
+  // The parent's minutes at the moment the picker opened from the chips, so
+  // Cancel can hand them back (dialing emits live; see the component docs).
+  const [preOpenMin, setPreOpenMin] = useState(value);
 
   // Entering the custom picker from the presets: seed both representations from
   // the selected preset, so "More…" continues from it instead of showing a
   // stale default (tapping 30m then More… used to jump back to 1h).
   const openPicker = () => {
     const mins = clampSeed(value);
+    setPreOpenMin(value);
     setPickMin(mins);
     setEndParts(partsInMinutes(mins));
     setView("picker");
@@ -138,12 +147,12 @@ export function DurationField({
       const seeded = partsInMinutes(pickMin);
       setEndParts(seeded);
       setTab("end");
-      if (live) emitEnd(nextOccurrence(seeded.hour, seeded.minute));
+      emitEnd(nextOccurrence(seeded.hour, seeded.minute));
     } else {
       const mins = clampSeed(minutesUntil(endMs));
       setPickMin(mins);
       setTab("duration");
-      if (live) onChange(mins);
+      onChange(mins);
     }
   };
 
@@ -156,6 +165,21 @@ export function DurationField({
       emitEnd(endMs);
     }
     setView("pill");
+  };
+
+  // Changes emitted while dialing must not survive a Cancel: hand back the
+  // last committed value (or the pre-picker minutes) before closing.
+  const cancelPicker = () => {
+    if (committed === null) {
+      onChange(preOpenMin);
+      setView("chips");
+    } else if (committed.kind === "duration") {
+      onChange(committed.min);
+      setView("pill");
+    } else {
+      emitEnd(committed.endMs);
+      setView("pill");
+    }
   };
 
   const reopenPicker = () => {
@@ -353,9 +377,7 @@ export function DurationField({
             size="$4"
             chromeless
             disabled={disabled}
-            onPress={() => {
-              setView(committed === null ? "chips" : "pill");
-            }}
+            onPress={cancelPicker}
           >
             Cancel
           </Button>
