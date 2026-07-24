@@ -14,10 +14,10 @@
     "format:check": "prettier --check ."
   },
   "dependencies": {
-    "tough-cookie": "^6.0.1"
+    "tough-cookie": "^6.0.2"
   },
   "devDependencies": {
-    "@types/node": "^25.9.2"
+    "@types/node": "^25.9.5"
   },
   "private": true
 }

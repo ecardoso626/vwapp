@@ -18,14 +18,14 @@
     "format:check": "prettier --check ."
   },
   "dependencies": {
-    "@instantdb/admin": "^1.0.46",
+    "@instantdb/admin": "^1.0.52",
     "@orpc/server": "latest",
     "@vwapp/contract": "workspace:*",
     "@vwapp/db": "workspace:*",
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@orpc/client": "^1.14.5",
+    "@orpc/client": "^1.14.8",
     "wrangler": "latest"
   },
   "private": true

@@ -14,14 +14,14 @@
     "format": "pnpm --recursive --parallel --aggregate-output run format"
   },
   "devDependencies": {
-    "@eslint/js": "^9.39.4",
+    "@eslint/js": "^9.39.5",
     "@ianvs/prettier-plugin-sort-imports": "^4.7.1",
-    "@tsconfig/strictest": "2",
-    "eslint": "^9.39.4",
-    "eslint-config-expo": "56",
-    "prettier": "^3.8.4",
+    "@tsconfig/strictest": "^2.0.8",
+    "eslint": "^9.39.5",
+    "eslint-config-expo": "^57.0.0",
+    "prettier": "^3.9.6",
     "typescript": "^6.0.3",
-    "typescript-eslint": "8"
+    "typescript-eslint": "^8.65.0"
   },
   "packageManager": "pnpm@10.33.4",
   "pnpm": {

@@ -30,8 +30,7 @@ const WHEEL_HEIGHT = 216;
 type Tab = "duration" | "end";
 type View = "chips" | "picker" | "pill";
 type Committed =
-  | { kind: "duration"; min: number }
-  | { kind: "end"; endMs: number };
+  { kind: "duration"; min: number } | { kind: "end"; endMs: number };
 interface EndParts {
   hour: number;
   minute: number;
