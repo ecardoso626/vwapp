@@ -89,6 +89,15 @@ export default function ClimateSheet() {
     : (info.data?.targetTempF ?? (info.isError ? DEFAULT_TEMP : null));
   const tempReady = userTempF !== null || seedTempF !== null;
   const tempF = userTempF ?? seedTempF ?? DEFAULT_TEMP;
+  // Adjusting a running session reschedules/retunes it — it never "starts"
+  // anything, so the in-flight label has to follow the mode like the idle one.
+  const actionLabel = adjust
+    ? startCmd.isPending
+      ? "Updating…"
+      : "Update"
+    : startCmd.isPending
+      ? "Starting…"
+      : "Start";
 
   return (
     // The sheet's surface colour comes from the form sheet's contentStyle (the
@@ -178,7 +187,7 @@ export default function ClimateSheet() {
               : durationMin;
           startCmd.mutate({ uuid, tempF, durationMin: effectiveMin });
         }}
-        label={startCmd.isPending ? "Starting…" : adjust ? "Update" : "Start"}
+        label={actionLabel}
       />
       {startCmd.error ? (
         <Text selectable color="$red10" fontSize="$2">
