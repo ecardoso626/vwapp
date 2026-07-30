@@ -16,6 +16,16 @@ const IDP_CLIENT = "b680e751-7e1f-4008-8ec1-3a528183d215@apps_vw-dilab_com";
 const REDIRECT_URI = "kombi:///login";
 const SCOPE = "openid";
 const APP_UA = "MyVW/1.0 Android";
+// VW's token endpoint (/oidc/v1/token -> CarnetSPAuthorizationServer /azs) began
+// REQUIRING a `play_integrity_token` field on both the authorization_code and
+// refresh_token grants (2026-07-30) — without it the exchange 401s with
+// INVALID_REQUEST, which broke every third-party client while the stock app
+// (which mints a real Google Play Integrity token) kept working. VW currently
+// only checks the field is PRESENT, not that it's a valid attestation, so any
+// non-empty value works. This is a STOPGAP: if VW starts validating the token
+// for real, this stops working and there is no server-side remedy (Play
+// Integrity tokens can't be minted off a genuine device+app). See CLAUDE.md.
+const PLAY_INTEGRITY_TOKEN = "unavailable";
 const BROWSER_UA =
   "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 (KHTML, like Gecko) " +
   "Version/4.0 Chrome/74.0.3729.185 Mobile Safari/537.36";
@@ -27,6 +37,13 @@ export interface VwTokens {
   idToken: string | null;
   /** epoch ms */
   expiresAt: number;
+  /**
+   * The PKCE code_verifier from the original login. VW now requires it to be
+   * replayed on the refresh_token grant (the stock app persists and replays the
+   * login verifier — APK xr0.java). Null for sessions stored before this was
+   * tracked; those can't refresh and fall back to a full login (which re-stores it).
+   */
+  codeVerifier: string | null;
 }
 
 export class VwAuthError extends Error {}
@@ -360,7 +377,7 @@ function assertNoTerms(body: string): void {
     );
 }
 
-function tokensFrom(t: TokenResponse): VwTokens {
+function tokensFrom(t: TokenResponse, codeVerifier: string | null): VwTokens {
   const accessToken = t.access_token ?? t.accessToken;
   if (accessToken === undefined)
     throw new VwAuthError("token response had no access_token");
@@ -369,6 +386,7 @@ function tokensFrom(t: TokenResponse): VwTokens {
     refreshToken: t.refresh_token ?? t.refreshToken ?? null,
     idToken: t.id_token ?? t.idToken ?? null,
     expiresAt: Date.now() + (t.expires_in ?? 3600) * 1000,
+    codeVerifier,
   };
 }
 
@@ -464,6 +482,7 @@ export async function vwLogin(
       "user-agent": APP_UA,
     },
     body: new URLSearchParams({
+      play_integrity_token: PLAY_INTEGRITY_TOKEN,
       grant_type: "authorization_code",
       code,
       client_id: DEVICE_CLIENT,
@@ -474,11 +493,21 @@ export async function vwLogin(
   if (!res.ok)
     throw new VwAuthError(`token exchange failed: ${String(res.status)}`);
   const body: unknown = await res.json();
-  return tokensFrom(body as TokenResponse);
+  return tokensFrom(body as TokenResponse, codeVerifier);
 }
 
-/** Refresh tokens with a refresh_token. Throws if the refresh token is dead. */
-export async function vwRefresh(refreshToken: string): Promise<VwTokens> {
+/**
+ * Refresh tokens with a refresh_token. Throws if the refresh token is dead.
+ * VW now requires BOTH a `play_integrity_token` and the original login's
+ * `code_verifier` on this grant (without the verifier the server returns 400
+ * "Internal Service validation failure") — so a session stored without a
+ * verifier (codeVerifier === null) can't refresh; the caller should skip
+ * straight to a full login for those.
+ */
+export async function vwRefresh(
+  refreshToken: string,
+  codeVerifier: string | null,
+): Promise<VwTokens> {
   const res = await fetch(`${API}/oidc/v1/token`, {
     method: "POST",
     headers: {
@@ -487,24 +516,26 @@ export async function vwRefresh(refreshToken: string): Promise<VwTokens> {
       "user-agent": APP_UA,
     },
     body: new URLSearchParams({
+      play_integrity_token: PLAY_INTEGRITY_TOKEN,
       grant_type: "refresh_token",
       client_id: DEVICE_CLIENT,
       refresh_token: refreshToken,
+      ...(codeVerifier !== null ? { code_verifier: codeVerifier } : {}),
     }).toString(),
   });
   if (!res.ok)
     throw new VwAuthError(`token refresh failed: ${String(res.status)}`);
   const body: unknown = await res.json();
-  const tokens = tokensFrom(body as TokenResponse);
+  const tokens = tokensFrom(body as TokenResponse, codeVerifier);
   // Car-Net sometimes omits a new refresh token; keep the old one.
   return { ...tokens, refreshToken: tokens.refreshToken ?? refreshToken };
 }
 
 // ---- authenticated API -----------------------------------------------------
-async function apiGet<T>(accessToken: string, path: string): Promise<T> {
+async function apiGet<T>(bearer: string, path: string): Promise<T> {
   const res = await fetch(`${API}${path}`, {
     headers: {
-      authorization: `Bearer ${accessToken}`,
+      authorization: `Bearer ${bearer}`,
       accept: "application/json",
       "user-agent": APP_UA,
     },
@@ -534,19 +565,43 @@ export async function vwGetVehicles(
     .filter((v): v is VehicleDTO => v !== null);
 }
 
+/**
+ * Read live status. VERIFIED LIVE 2026-07-30: both reads are now **S-PIN
+ * (carnet) gated** — with the plain access token `/rvs` and `/ev` return
+ * `403 USER_NOT_AUTHORIZED` (from `vehiclestatusservice` / `EVServices`), even
+ * though the account's privileges list VehicleStatus/EV as AVAILABLE. VW moved
+ * these reads onto the same carnet-vehicle-token auth that lock/unlock and
+ * force-refresh already use (the stock app's rvs client sits on that token too
+ * — APK `defpackage/gig.java`). Pass a carnetVehicleToken from
+ * `vwMintSpinSession`; a 401 means it expired — re-mint and retry.
+ */
 export async function vwGetStatus(
-  accessToken: string,
+  carnetToken: string,
   vin: string,
   uuid: string,
 ): Promise<StatusDTO> {
   const [rvs, charge] = await Promise.all([
-    apiGet<RvsResponse>(accessToken, `/rvs/v1/vehicle/${uuid}`),
+    apiGet<RvsResponse>(carnetToken, `/rvs/v1/vehicle/${uuid}`),
     apiGet<ChargeResponse>(
-      accessToken,
+      carnetToken,
       `/ev/v1/vehicle/${uuid}/charge/summary`,
     ),
   ]);
   return toStatusDTO(vin, rvs, charge);
+}
+
+/** A JWT's `exp` claim as epoch ms, or null if absent/unparseable. */
+export function jwtExpiryMs(token: string): number | null {
+  const part = token.split(".")[1];
+  if (part === undefined) return null;
+  try {
+    const b64 = part.replace(/-/g, "+").replace(/_/g, "/");
+    const json = atob(b64.padEnd(Math.ceil(b64.length / 4) * 4, "="));
+    const exp = (JSON.parse(json) as { exp?: number }).exp;
+    return typeof exp === "number" ? exp * 1000 : null;
+  } catch {
+    return null;
+  }
 }
 
 function toStatusDTO(
@@ -742,18 +797,68 @@ interface HistoryResponse {
 }
 
 /**
+ * `eventStatus.responseOutcome` values, from the myVW APK's `ttc` enum
+ * (`defpackage/ttc.java`; the app's own EventStatus model has ONLY
+ * `responseOutcome` + `responseCode` — it doesn't model `responseStatus` at all,
+ * and the app treats Accepted/Success as non-errors).
+ */
+const OUTCOME_REJECTED = 0;
+const OUTCOME_SUCCESS = 2;
+const OUTCOME_FAILED = 3;
+
+interface ParsedEvent {
+  eventStatus?: {
+    responseOutcome?: number;
+    responseCode?: string;
+    /** Undocumented and NOT modeled by the app; VW sends the STRING "1" here
+     *  for EV ops, which is why a `=== 1` test silently failed. Unused. */
+    responseStatus?: unknown;
+  };
+  /** JSON string with the op's own result detail (e.g. `cause`, `status`). */
+  payloadString?: string;
+}
+
+/** A human-usable reason for a failed op: VW's responseCode when present (EV
+ *  ops don't send one), else the payload's own cause/status fields. */
+function commandFailureReason(parsed: ParsedEvent): string {
+  const code = parsed.eventStatus?.responseCode;
+  if (code !== undefined && code !== "") return code;
+  try {
+    const payload = JSON.parse(parsed.payloadString ?? "{}") as {
+      data?: { cause?: string; status?: string; trigger?: string };
+    };
+    const d = payload.data ?? {};
+    return [d.cause, d.status, d.trigger].filter(Boolean).join(" ");
+  } catch {
+    return "";
+  }
+}
+
+/**
  * Wait for a remote command to actually finish, the way the myVW app does (it
  * keeps spinning until this confirms). Polls the operation history
  *   GET /history/v1/vehicle/{uuid}/correlationId/{correlationId}/ro/
- * (read auth = access token) whose `responseBody` is a JSON string. While the
- * operation is queued it carries only request metadata; once the car executes
- * it gains `eventStatus.{responseStatus, responseCode}` (responseStatus 1 /
- * responseCode "…SUCCESS" = success). Resolves `{confirmed:true}` on success,
- * throws VwCommandError on an explicit failure, and resolves `{confirmed:false}`
- * if no terminal status arrives within the window (caller falls back to optimistic).
+ * (**carnet-gated since 2026-07-30** — with the access token it 403s, which the
+ * loop below swallows as a transient read error, so every command would poll out
+ * and report "unconfirmed") whose `responseBody` is a JSON string. While the
+ * operation is queued it carries only request metadata; once the car executes it
+ * gains an `eventStatus`. Terminality comes from **`responseOutcome`** (the
+ * app's own signal — see the ttc enum above): Success(2) confirms, Rejected(0)
+ * and Failed(3) throw, and Accepted(1) means "queued, not finished yet" so we
+ * keep polling. `responseCode` is also honoured for door ops, which report
+ * "…RO_DOOR_SUCCESS" — EV/climate ops send no code at all.
+ *
+ * NOTE: do NOT test `responseStatus === 1`. VW sends it as the STRING "1" for EV
+ * ops, so a strict-equality check fails and every successful climate stop was
+ * reported as "Vehicle did not complete the command". (Latent until the carnet
+ * fix, because this read used to 403 and never got parsed.)
+ *
+ * Resolves `{confirmed:true}` on success, throws VwCommandError on an explicit
+ * failure, and resolves `{confirmed:false}` if no terminal status arrives within
+ * the window (caller falls back to optimistic).
  */
 export async function vwAwaitCommandResult(
-  accessToken: string,
+  carnetToken: string,
   uuid: string,
   correlationId: string,
   opts: { attempts?: number; intervalMs?: number } = {},
@@ -765,30 +870,40 @@ export async function vwAwaitCommandResult(
     await sleep(intervalMs);
     let raw: string | undefined;
     try {
-      const res = await apiGet<HistoryResponse>(accessToken, path);
+      const res = await apiGet<HistoryResponse>(carnetToken, path);
       raw = res.data?.responseBody ?? res.responseBody;
     } catch (err) {
       if (err instanceof VwAuthError) throw err;
       continue; // transient read error — keep polling
     }
     if (typeof raw !== "string") continue;
-    let parsed: {
-      eventStatus?: { responseStatus?: number; responseCode?: string };
-    };
+    let parsed: ParsedEvent;
     try {
-      parsed = JSON.parse(raw) as typeof parsed;
+      parsed = JSON.parse(raw) as ParsedEvent;
     } catch {
       continue;
     }
     const ev = parsed.eventStatus;
     if (ev === undefined) continue; // still queued/in-progress
     const code = ev.responseCode ?? "";
-    if (ev.responseStatus === 1 || /success/i.test(code))
+    if (ev.responseOutcome === OUTCOME_SUCCESS || /success/i.test(code))
       return { confirmed: true };
-    // Terminal failure — surface the vehicle's reason (e.g. "ignition is on").
-    throw new VwCommandError(
-      `Vehicle did not complete the command${code ? ` (${code})` : ""}`,
-    );
+    if (
+      ev.responseOutcome === OUTCOME_REJECTED ||
+      ev.responseOutcome === OUTCOME_FAILED ||
+      // No outcome but a non-success code: the pre-2026-07 door-op shape, where
+      // a code like "…RO_DOOR_FAILED" IS the terminal verdict. Without this a
+      // failed lock/unlock would poll out and be reported as optimistic success.
+      (ev.responseOutcome === undefined && code !== "")
+    ) {
+      // Terminal failure — surface the vehicle's reason (e.g. "ignition is on").
+      const reason = commandFailureReason(parsed);
+      throw new VwCommandError(
+        `Vehicle did not complete the command${reason ? ` (${reason})` : ""}`,
+      );
+    }
+    // Accepted(1) or an outcome we don't recognise: not terminal — keep polling.
+    continue;
   }
   return { confirmed: false };
 }
@@ -961,16 +1076,17 @@ async function evCommand(
   return correlationId;
 }
 
-/** Read the current cabin target temperature (°F). Plain access-token read
- *  (unlike the EV summary, the settings GET isn't S-PIN-gated). */
+/** Read the current cabin target temperature (°F). S-PIN (carnet) gated since
+ *  2026-07-30 — this settings GET used to accept the plain access token and now
+ *  403s with it, like every other /ev read. */
 export async function vwGetClimateTargetTempF(
-  accessToken: string,
+  carnetToken: string,
   uuid: string,
 ): Promise<number | null> {
   const data = await apiGet<{
     data?: { targetTemperature?: { temperature?: number | null } };
   }>(
-    accessToken,
+    carnetToken,
     `/ev/v1/vehicle/${uuid}/pretripclimate/settings?tempUnit=fahrenheit`,
   );
   return data.data?.targetTemperature?.temperature ?? null;

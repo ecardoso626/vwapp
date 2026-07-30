@@ -5,6 +5,7 @@
  */
 import { unseal } from "./crypto";
 import type { AppEnv } from "./env";
+import { readStatus } from "./status";
 import {
   endClimateSession,
   latestParkedAt,
@@ -23,7 +24,6 @@ import {
   vwClimateStop,
   VwCommandError,
   vwGetClimate,
-  vwGetStatus,
   vwMintSpinSession,
 } from "./vw/client";
 
@@ -35,13 +35,20 @@ export async function pollAllVehicles(db: Db, env: AppEnv): Promise<void> {
   let written = 0;
   for (const { account, vehicles } of accounts) {
     try {
-      const tokens = await ensureTokens(db, env, account);
-      for (const vehicle of vehicles) {
-        const status = await vwGetStatus(
-          tokens.accessToken,
-          vehicle.vin,
-          vehicle.uuid,
+      // Status reads are S-PIN gated now, so an account with no stored S-PIN
+      // simply can't be polled (it can still be used for anything that only
+      // needs the access token). Log once per tick rather than throwing.
+      const creds = JSON.parse(
+        await unseal(env.CREDS_ENC_KEY, account.sealed),
+      ) as { spin?: string };
+      if (creds.spin === undefined || creds.spin === "") {
+        console.log(
+          `[cron] account=${account.id} skipped: no stored S-PIN (status reads are S-PIN gated)`,
         );
+        continue;
+      }
+      for (const vehicle of vehicles) {
+        const status = await readStatus(db, env, account, vehicle, creds.spin);
         if (await saveSnapshot(db, vehicle.id, status)) written++;
         polled++;
       }
@@ -138,7 +145,7 @@ export async function runClimateKeepalive(db: Db, env: AppEnv): Promise<void> {
         slog(`start issued correlationId=${correlationId}`);
         try {
           const { confirmed } = await vwAwaitCommandResult(
-            tokens.accessToken,
+            carnet,
             vehicle.uuid,
             correlationId,
             { attempts: 4, intervalMs: 2500 },

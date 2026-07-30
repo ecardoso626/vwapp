@@ -233,6 +233,9 @@ export class VwClient {
         "user-agent": APP_UA,
       },
       body: new URLSearchParams({
+        // VW now requires a play_integrity_token on the token grant (only
+        // presence is checked today, not validity — see backend/src/vw/client.ts).
+        play_integrity_token: "unavailable",
         grant_type: "authorization_code",
         code,
         client_id: DEVICE_CLIENT,

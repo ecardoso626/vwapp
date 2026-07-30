@@ -23,6 +23,19 @@ const _schema = i.schema({
       refreshToken: i.string().optional(),
       idToken: i.string().optional(),
       tokenExpiresAt: i.number(),
+      /** PKCE code_verifier from the login, replayed on the refresh grant
+       *  (VW now requires it there). Absent for pre-2026-07 sessions. */
+      codeVerifier: i.string().optional(),
+      /**
+       * Cached per-vehicle S-PIN session tokens, as JSON
+       * `{ [vehicleUuid]: { token, expiresAt } }`. VW now gates the status
+       * reads behind these (see vw/client.ts vwGetStatus) and they live ~30
+       * min, so caching keeps the every-minute cron from minting one per tick.
+       * Deliberately on vwAccounts, NOT vehicles: a carnetVehicleToken can
+       * unlock the car and `vehicles` is client-readable (instant.perms.ts),
+       * while vwAccounts is deny-all.
+       */
+      carnetTokens: i.string().optional(),
     }),
     vehicles: i.entity({
       vin: i.string().indexed(),

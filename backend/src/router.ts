@@ -4,6 +4,7 @@ import { runAssistant, type VehicleCaller } from "./assistant";
 import { seal, sha256Hex, timingSafeEqual, unseal } from "./crypto";
 import type { AppEnv } from "./env";
 import { isMapsConfigured, signSnapshotUrl } from "./maps";
+import { readStatus } from "./status";
 import {
   clearUserData,
   endClimateSession,
@@ -23,7 +24,7 @@ import {
   type StoredUser,
   type StoredVehicle,
 } from "./store";
-import { ensureTokens, reauth } from "./tokens";
+import { ensureCarnetToken, ensureTokens, reauth } from "./tokens";
 import {
   VwAuthError,
   vwAwaitCommandResult,
@@ -38,7 +39,6 @@ import {
   vwGetClimate,
   vwGetClimateTargetTempF,
   vwGetMessages,
-  vwGetStatus,
   vwGetVehicles,
   vwLockUnlock,
   vwLogin,
@@ -137,9 +137,11 @@ async function verifySavedSession(
       // fall through to a refresh attempt
     }
   }
-  if (tokens.refreshToken === null) return null;
+  // Refresh now also requires the original login code_verifier; without one
+  // (older stored session) a refresh can't succeed — force a full login.
+  if (tokens.refreshToken === null || tokens.codeVerifier === null) return null;
   try {
-    const fresh = await vwRefresh(tokens.refreshToken);
+    const fresh = await vwRefresh(tokens.refreshToken, tokens.codeVerifier);
     return { tokens: fresh, vehicles: await vwGetVehicles(fresh.accessToken) };
   } catch {
     return null;
@@ -286,13 +288,17 @@ const login = os.auth.login.handler(async ({ input, context }) => {
   // data the moment it appears, instead of waiting for the cron or a manual
   // refresh.
   try {
-    for (const v of stored) {
-      await saveSnapshot(
-        context.db,
-        v.id,
-        await vwGetStatus(tokens.accessToken, v.vin, v.uuid),
-      );
-    }
+    // Status reads are S-PIN gated; re-read the account so the carnet-token
+    // cache is written to the row we just saved.
+    const account = await getAccountByUserKey(context.db, userKey);
+    if (account !== null)
+      for (const v of stored) {
+        await saveSnapshot(
+          context.db,
+          v.id,
+          await readStatus(context.db, context.env, account, v, input.spin),
+        );
+      }
   } catch (err) {
     console.error("initial status fetch after login failed", err);
   }
@@ -354,6 +360,9 @@ const refresh = os.vehicle.refresh.handler(async ({ input, context }) => {
   const account = user.account;
   const vehicle = pickVehicle(user, input.uuid);
 
+  // Status reads are S-PIN gated now, so pull-to-refresh needs a stored S-PIN.
+  const spin = await requireSpin(context.env, account);
+
   return loggedOp(`refresh vehicle=${vehicle.id}`, async () => {
     const tokens = await ensureTokens(context.db, context.env, account);
 
@@ -368,14 +377,13 @@ const refresh = os.vehicle.refresh.handler(async ({ input, context }) => {
       vehicle.uuid,
     );
 
-    let result;
-    try {
-      result = await vwGetStatus(tokens.accessToken, vehicle.vin, vehicle.uuid);
-    } catch (err) {
-      if (!(err instanceof VwAuthError)) throw err;
-      const fresh = await reauth(context.db, context.env, account, true);
-      result = await vwGetStatus(fresh.accessToken, vehicle.vin, vehicle.uuid);
-    }
+    const result = await readStatus(
+      context.db,
+      context.env,
+      account,
+      vehicle,
+      spin,
+    );
     // The app's snapshot subscription delivers this; the return value is only a
     // convenience for scripts.
     await saveSnapshot(context.db, vehicle.id, result);
@@ -446,7 +454,7 @@ const command = os.vehicle.command.handler(async ({ input, context }) => {
       // app. (Resolves false on timeout — rare; we then fall back to optimistic.)
       try {
         await vwAwaitCommandResult(
-          tokens.accessToken,
+          await ensureCarnetToken(db, env, account, vehicle.uuid, spin),
           vehicle.uuid,
           correlationId,
         );
@@ -460,11 +468,7 @@ const command = os.vehicle.command.handler(async ({ input, context }) => {
       // Snapshot the confirmed state. RVS still lags the physical action, so trust
       // the action we just confirmed for `locked`; the cron reconciles the rest.
       const want = input.action === "lock";
-      const status = await vwGetStatus(
-        tokens.accessToken,
-        vehicle.vin,
-        vehicle.uuid,
-      );
+      const status = await readStatus(db, env, account, vehicle, spin);
       await saveSnapshot(
         db,
         vehicle.id,
@@ -507,12 +511,12 @@ function mapVwError(err: unknown): never {
 /** Await an EV/command op's terminal result; rethrow explicit failures, ignore
  *  auth/timeout (op was accepted). Spacing ops this way avoids EV_THRESHOLD. */
 async function confirmOp(
-  accessToken: string,
+  carnetToken: string,
   uuid: string,
   correlationId: string,
 ): Promise<void> {
   try {
-    await vwAwaitCommandResult(accessToken, uuid, correlationId, {
+    await vwAwaitCommandResult(carnetToken, uuid, correlationId, {
       attempts: 6,
       intervalMs: 2500,
     });
@@ -588,12 +592,12 @@ async function retryOnBusy<T>(
  * through any residual rate-limit). A genuinely failed PUT already threw upstream.
  */
 async function settleTempChange(
-  accessToken: string,
+  carnetToken: string,
   uuid: string,
   tempF: number,
 ): Promise<void> {
   for (let i = 0; i < 8; i++) {
-    if ((await vwGetClimateTargetTempF(accessToken, uuid)) === tempF) return;
+    if ((await vwGetClimateTargetTempF(carnetToken, uuid)) === tempF) return;
     await sleep(2500);
   }
 }
@@ -686,11 +690,7 @@ const climateStart = os.vehicle.climateStart.handler(
                 vwSetClimateTemp(await mint(), vehicle.uuid, input.tempF),
               { attempts: 5 },
             );
-            await settleTempChange(
-              tokens.accessToken,
-              vehicle.uuid,
-              input.tempF,
-            );
+            await settleTempChange(await mint(), vehicle.uuid, input.tempF);
           }
 
           // The start, by contrast, has a server-side fallback: the keepalive cron
@@ -765,12 +765,13 @@ const climateStop = os.vehicle.climateStop.handler(
         }
       };
       try {
+        const correlationId = await retryOnBusy("climate stop", async () =>
+          vwClimateStop(await mint(), vehicle.uuid),
+        );
         await confirmOp(
-          tokens.accessToken,
+          await ensureCarnetToken(db, env, account, vehicle.uuid, spin),
           vehicle.uuid,
-          await retryOnBusy("climate stop", async () =>
-            vwClimateStop(await mint(), vehicle.uuid),
-          ),
+          correlationId,
         );
       } catch (err) {
         mapVwError(err);
@@ -789,24 +790,34 @@ const climateInfo = os.vehicle.climateInfo.handler(
     const user = await getUser(db, userId);
     if (user.account === null)
       throw new ORPCError("UNAUTHORIZED", { message: "not logged in" });
+    const account = user.account;
     const vehicle = pickVehicle(user, input.uuid);
+    // Carnet-gated since 2026-07-30 (403s with the access token).
+    const spin = await requireSpin(env, account);
 
-    const tokens = await ensureTokens(db, env, user.account);
+    const carnet = await ensureCarnetToken(
+      db,
+      env,
+      account,
+      vehicle.uuid,
+      spin,
+    );
     try {
       return {
-        targetTempF: await vwGetClimateTargetTempF(
-          tokens.accessToken,
-          vehicle.uuid,
-        ),
+        targetTempF: await vwGetClimateTargetTempF(carnet, vehicle.uuid),
       };
     } catch (err) {
       if (!(err instanceof VwAuthError)) throw err;
-      const fresh = await reauth(db, env, user.account, true);
+      const fresh = await ensureCarnetToken(
+        db,
+        env,
+        account,
+        vehicle.uuid,
+        spin,
+        { force: true },
+      );
       return {
-        targetTempF: await vwGetClimateTargetTempF(
-          fresh.accessToken,
-          vehicle.uuid,
-        ),
+        targetTempF: await vwGetClimateTargetTempF(fresh, vehicle.uuid),
       };
     }
   },
@@ -834,17 +845,18 @@ const chargeStart = os.vehicle.chargeStart.handler(
       }
     };
     try {
+      const correlationId = await retryOnBusy("charge start", async () =>
+        vwChargeStart(await mint(), vehicle.uuid),
+      );
       await confirmOp(
-        tokens.accessToken,
+        await ensureCarnetToken(db, env, account, vehicle.uuid, spin),
         vehicle.uuid,
-        await retryOnBusy("charge start", async () =>
-          vwChargeStart(await mint(), vehicle.uuid),
-        ),
+        correlationId,
       );
     } catch (err) {
       mapVwError(err);
     }
-    await snapshotNow(db, account, env, vehicle);
+    await snapshotNow(db, account, env, vehicle, spin);
     return { ok: true as const };
   },
 );
@@ -870,17 +882,18 @@ const chargeStop = os.vehicle.chargeStop.handler(async ({ input, context }) => {
     }
   };
   try {
+    const correlationId = await retryOnBusy("charge stop", async () =>
+      vwChargeStop(await mint(), vehicle.uuid),
+    );
     await confirmOp(
-      tokens.accessToken,
+      await ensureCarnetToken(db, env, account, vehicle.uuid, spin),
       vehicle.uuid,
-      await retryOnBusy("charge stop", async () =>
-        vwChargeStop(await mint(), vehicle.uuid),
-      ),
+      correlationId,
     );
   } catch (err) {
     mapVwError(err);
   }
-  await snapshotNow(db, account, env, vehicle);
+  await snapshotNow(db, account, env, vehicle, spin);
   return { ok: true as const };
 });
 
@@ -906,17 +919,18 @@ const setChargeLimit = os.vehicle.setChargeLimit.handler(
       }
     };
     try {
+      const correlationId = await retryOnBusy("set charge limit", async () =>
+        vwSetChargeLimit(await mint(), vehicle.uuid, input.targetSoc),
+      );
       await confirmOp(
-        tokens.accessToken,
+        await ensureCarnetToken(db, env, account, vehicle.uuid, spin),
         vehicle.uuid,
-        await retryOnBusy("set charge limit", async () =>
-          vwSetChargeLimit(await mint(), vehicle.uuid, input.targetSoc),
-        ),
+        correlationId,
       );
     } catch (err) {
       mapVwError(err);
     }
-    await snapshotNow(db, account, env, vehicle);
+    await snapshotNow(db, account, env, vehicle, spin);
     return { ok: true as const };
   },
 );
@@ -1065,13 +1079,13 @@ async function snapshotNow(
   account: StoredAccount,
   env: AppEnv,
   vehicle: StoredVehicle,
+  spin: string,
 ): Promise<void> {
   try {
-    const tokens = await ensureTokens(db, env, account);
     await saveSnapshot(
       db,
       vehicle.id,
-      await vwGetStatus(tokens.accessToken, vehicle.vin, vehicle.uuid),
+      await readStatus(db, env, account, vehicle, spin),
     );
   } catch (err) {
     console.error("post-command snapshot failed", err);

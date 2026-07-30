@@ -116,8 +116,10 @@ a logout side effect.
 
 **Data freshness:** a Wrangler cron (`* * * * *`, every minute — Cloudflare's
 finest; `backend/src/poll.ts`) polls VW per stored account and writes snapshots
-(deduped on VW's `capturedAt`, pruned after 30 days). Plain `rvs`/`ev` reads
-aren't the tsp-token-rate-limited endpoints, so 1-min polling is safe. Pull-to-refresh is the `vehicle.refresh` RPC; its result also
+(deduped on VW's `capturedAt`, pruned after 30 days). The `rvs`/`ev` reads aren't the tsp-token-rate-limited endpoints, so 1-min
+polling is safe — but since 2026-07-30 they ARE S-PIN gated (see *VW protocol* →
+Status), so each poll needs a carnetVehicleToken; these are cached ~30 min on the
+account, and the poller skips any account with no stored S-PIN. Pull-to-refresh is the `vehicle.refresh` RPC; its result also
 arrives via the snapshot live query. Per-user schedules must NOT become
 Wrangler crons — see TODO.md §2. Cold-start coverage (don't remove either
 half): `auth.login` writes initial snapshots after storing creds, and the
@@ -182,7 +184,50 @@ client secret** (constants are identical at the top of
    `{API}/oidc/v1/token` (`grant_type=authorization_code`, `code_verifier`) →
    access / refresh / id tokens.
 
-**Status** (Bearer access token; vehicles are addressed by **UUID, not VIN**):
+**`play_integrity_token` (BROKE EVERYTHING 2026-07-30).** `POST /oidc/v1/token`
+now **requires** a `play_integrity_token` form field on **both** the
+`authorization_code` and `refresh_token` grants; without it VW answers `401
+INVALID_REQUEST` (`origin: CarnetSPAuthorizationServer`, `path: /azs`) — this is
+what broke this app and every other third-party client while the stock app kept
+working. The stock app mints a real Google **Standard Integrity API** token (APK:
+`AzsRequest`/`AzsRefreshRequest`, iface `defpackage/vr0.java`, provider
+`defpackage/xpb.java`, cloud project `820996449805`); it sends the field
+absent/null when attestation fails, so **VW currently only checks the field is
+PRESENT, not that it is valid** — we send the literal `"unavailable"`
+(`PLAY_INTEGRITY_TOKEN` in `backend/src/vw/client.ts`). **This is a STOPGAP**: if
+VW starts really validating it, there is no server-side remedy (Play Integrity
+tokens can't be minted off a genuine device+app). The **refresh** grant also needs
+the original login's **`code_verifier`** replayed (the app persists it —
+`defpackage/xr0.java`; omitting it → `400 Internal Service validation failure`),
+so `codeVerifier` is stored on `vwAccounts` and a session lacking one skips
+straight to a full login.
+
+**Status** (vehicles are addressed by **UUID, not VIN**) — **S-PIN gated since
+2026-07-30**: `/rvs` and `/ev` reads now return `403 USER_NOT_AUTHORIZED`
+(`origin: vehiclestatusservice` / `EVServices`) with a plain access token and
+**200 with a carnetVehicleToken** — the same S-PIN token lock/unlock and
+force-refresh use (the stock app's rvs client sits on it too:
+`defpackage/gig.java`). Verified live; the account's privileges still list
+VehicleStatus/EV as AVAILABLE with `playProtection: OFF`, so this is an auth-model
+change, not an entitlement lapse. Carnet tokens live **30 min**, so they're cached
+per-vehicle on `vwAccounts.carnetTokens` (JSON `{uuid: {token, expiresAt}}`) by
+`ensureCarnetToken`, keeping the 1-min cron to ~2 S-PIN mints/hour instead of 60.
+Deliberately on `vwAccounts` (deny-all), NOT `vehicles` (client-readable — a
+carnet token can unlock the car). All status reads go through
+`backend/src/status.ts` `readStatus`, which re-mints once on a 401. **An account
+with no stored S-PIN can no longer be polled at all.**
+
+The same 403 hit **every** vehicle-scoped read, so these moved to the carnet
+token too (verified live, access vs carnet, 2026-07-30):
+`/ev/v1/vehicle/{uuid}/pretripclimate/settings` (`vwGetClimateTargetTempF` — its
+403 threw a plain `Error`, not a mapped `VwCommandError`, which is what surfaced
+as **"internal server error" on climate start / the climate sheet**),
+`/ev/v1/vehicle/{uuid}/charging/settings`, `/ev/v1/user/.../summary`, and
+`/history/v1/vehicle/{uuid}/correlationId/{id}/ro/` (`vwAwaitCommandResult`; with
+the access token its 403 was swallowed as a transient read error, so every
+command silently polled out as "unconfirmed" instead of crashing).
+**Only `/account/v1/garage` and `/rrs/v1/privileges/...` still take the plain
+access token** — assume anything vehicle-scoped needs the carnet token.
 
 - `GET /account/v1/garage` → vehicles (`vehicleId`/`uuid`, `vin`, nickname, model).
 - `GET /rvs/v1/vehicle/{uuid}` → lock (`exteriorStatus.secure === "SECURE"`),

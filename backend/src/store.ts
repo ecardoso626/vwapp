@@ -27,10 +27,18 @@ function tx<T>(node: T | undefined): T {
 export interface StoredVehicle extends VehicleDTO {
   id: string;
 }
+/** A cached per-vehicle S-PIN session token (carnetVehicleToken) + its expiry. */
+export interface CarnetToken {
+  token: string;
+  /** epoch ms */
+  expiresAt: number;
+}
 export interface StoredAccount {
   id: string;
   sealed: Sealed;
   tokens: VwTokens;
+  /** Cached carnet tokens by vehicle uuid (see the vwAccounts schema comment). */
+  carnetTokens: Record<string, CarnetToken>;
 }
 export interface StoredUser {
   id: string;
@@ -47,6 +55,8 @@ interface AccountRecord {
   refreshToken?: string | undefined;
   idToken?: string | undefined;
   tokenExpiresAt: number;
+  codeVerifier?: string | undefined;
+  carnetTokens?: string | undefined;
 }
 interface VehicleRecord {
   id: string;
@@ -56,15 +66,40 @@ interface VehicleRecord {
   model?: string | undefined;
 }
 
+/** Parse the cached-carnet-token JSON blob, tolerating absent/corrupt data. */
+function parseCarnetTokens(
+  raw: string | undefined,
+): Record<string, CarnetToken> {
+  if (raw === undefined) return {};
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== "object" || parsed === null) return {};
+    const out: Record<string, CarnetToken> = {};
+    for (const [uuid, v] of Object.entries(parsed as Record<string, unknown>)) {
+      const entry = v as { token?: unknown; expiresAt?: unknown };
+      if (
+        typeof entry.token === "string" &&
+        typeof entry.expiresAt === "number"
+      )
+        out[uuid] = { token: entry.token, expiresAt: entry.expiresAt };
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
 function toStoredAccount(a: AccountRecord): StoredAccount {
   return {
     id: a.id,
+    carnetTokens: parseCarnetTokens(a.carnetTokens),
     sealed: { ciphertext: a.credCiphertext, iv: a.credIv },
     tokens: {
       accessToken: a.accessToken,
       refreshToken: a.refreshToken ?? null,
       idToken: a.idToken ?? null,
       expiresAt: a.tokenExpiresAt,
+      codeVerifier: a.codeVerifier ?? null,
     },
   };
 }
@@ -142,6 +177,7 @@ async function resolveAccountUpsert(
     refreshToken: tokens.refreshToken,
     idToken: tokens.idToken,
     tokenExpiresAt: tokens.expiresAt,
+    codeVerifier: tokens.codeVerifier,
   };
   const storedVehicles: StoredVehicle[] = vehicles.map((v) => ({
     ...v,
@@ -245,6 +281,30 @@ export async function updateTokens(
       refreshToken: tokens.refreshToken,
       idToken: tokens.idToken,
       tokenExpiresAt: tokens.expiresAt,
+      codeVerifier: tokens.codeVerifier,
+    }),
+  );
+}
+
+/**
+ * Cache a freshly minted per-vehicle carnet token on the account, dropping any
+ * already-expired entries. Also updates `account.carnetTokens` in place so the
+ * rest of this invocation reuses it without a re-read.
+ */
+export async function saveCarnetToken(
+  db: Db,
+  account: StoredAccount,
+  uuid: string,
+  entry: CarnetToken,
+): Promise<void> {
+  const now = Date.now();
+  const next: Record<string, CarnetToken> = { [uuid]: entry };
+  for (const [k, v] of Object.entries(account.carnetTokens))
+    if (k !== uuid && v.expiresAt > now) next[k] = v;
+  account.carnetTokens = next;
+  await db.transact(
+    tx(db.tx.vwAccounts[account.id]).update({
+      carnetTokens: JSON.stringify(next),
     }),
   );
 }
