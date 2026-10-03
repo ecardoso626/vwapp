@@ -1,4 +1,4 @@
-# VW protocol characterization — Phase 1
+# VW protocol characterization — Phase 1.1
 
 The offline suite captures behavior at the current `umbrel-selfhosted` source
 boundary. It is not evidence that Volkswagen still accepts these requests or
@@ -16,7 +16,7 @@ missing requests fail. The production VW client uses `fetch` for all HTTP
 requests, and the suite never loads credential env files or starts a server.
 `resolve-ts.mjs` only resolves the repository's extensionless local TypeScript
 imports so Node can execute the existing modules unchanged. An isolation test
-proves an unclaimed request is rejected. Fast history polling uses fake timers;
+proves an unclaimed request is rejected. Fast history and EV busy polling use fake timers;
 PKCE and selected expiry tests use fixed random/time values. This is test
 process isolation, not a machine-wide network firewall.
 
@@ -41,19 +41,19 @@ The underlying protocol and production orchestration files were not edited.
 
 ## Coverage
 
-| Area                 | Coverage | Tested behavior / limit                                                                                                                                                                                                                                                                       |
-| -------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Authentication       | GOOD     | OAuth authorize query/client IDs/PKCE/redirect URI, form fields, host-only cookie isolation, login exchange, malformed markup and token errors. Full redirect variants and changing real IdP HTML remain uncovered.                                                                           |
-| Tokens/session       | GOOD     | Access reuse, 60-second expiry gate, refresh with original verifier, missing replacement refresh token, persistence shape, refresh failure/password login fallback, missing-verifier fallback and carnet reuse/margin. Account-sharing login/guest attachment has no full router fixture yet. |
-| S-PIN                | GOOD     | Challenge GET, remaining-attempt guard, exact SHA-512 synthetic vector, idToken in body, access bearer, WCT, carnet response, 401 and incorrect PIN.                                                                                                                                          |
-| Vehicle discovery    | GOOD     | Wrapped garage, UUID/VIN distinction, missing VIN filter; alternate unwrapped shape remains a small gap.                                                                                                                                                                                      |
-| Status               | GOOD     | Parallel RVS/EV carnet reads; SoC preference, range units, odometer, security/closures, charge/plug, location and source timestamps; missing-data and 401/429/5xx behavior; `readStatus` forced carnet retry.                                                                                 |
-| Lock/unlock          | GOOD     | Exact S-PIN→PUT sequence, carnet bearer, boolean body, acceptance/correlation/refusal, plus router's optimistic unconfirmed unlock path.                                                                                                                                                      |
-| Charging             | PARTIAL  | Start/stop/target endpoint, bearer, body/settings preservation, EV busy/auth/generic failures. Router retry budget and snapshot tail are not fully exercised.                                                                                                                                 |
-| Climate              | PARTIAL  | State read, start/stop, settings merge/temp write and carnet bearer. Managed-session/retry/keepalive loops are not exercised end to end.                                                                                                                                                      |
-| Wake/refresh         | PARTIAL  | Bodyless S-PIN-gated refresh POST and accepted response. Router's best-effort swallowing and delayed vehicle response are not exercised.                                                                                                                                                      |
-| Command confirmation | GOOD     | Correlation, pre-read delay, accepted/success/explicit failure, malformed/pending/5xx/network/no confirmation, typed 401; router returns success and overwrites contrary observed lock state after eight unconfirmed reads.                                                                   |
-| Retry/error behavior | PARTIAL  | Refresh fallback, status forced re-mint, history polling, EV busy classification, generic 429/5xx and network failure. Router's busy/climate retry cadence, full-login throttling and no-deadline fetch behavior remain documented from source rather than comprehensively simulated.         |
+| Area                 | Coverage | Tested behavior / limit                                                                                                                                                                                                                                                                                                       |
+| -------------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Authentication       | GOOD     | OAuth authorize query/client IDs/PKCE/redirect URI, form fields, host-only cookie isolation, login exchange, malformed markup and token errors. Full redirect variants and changing real IdP HTML remain uncovered.                                                                                                           |
+| Tokens/session       | GOOD     | Access reuse, 60-second expiry gate, refresh with original verifier, missing replacement refresh token, persistence shape, refresh failure/password login fallback, missing-verifier fallback and carnet reuse/margin. Account-sharing login/guest attachment has no full router fixture yet.                                 |
+| S-PIN                | GOOD     | Challenge GET, remaining-attempt guard, exact SHA-512 synthetic vector, idToken in body, access bearer, WCT, carnet response, 401 and incorrect PIN.                                                                                                                                                                          |
+| Vehicle discovery    | GOOD     | Wrapped garage, UUID/VIN distinction, missing VIN filter; alternate unwrapped shape remains a small gap.                                                                                                                                                                                                                      |
+| Status               | GOOD     | Parallel RVS/EV carnet reads; SoC preference, range units, odometer, security/closures, charge/plug, location and source timestamps; missing-data and 401/429/5xx behavior; `readStatus` forced carnet retry.                                                                                                                 |
+| Lock/unlock          | GOOD     | Exact S-PIN→PUT sequence, carnet bearer, boolean body, acceptance/correlation/refusal, plus router's optimistic unconfirmed unlock path.                                                                                                                                                                                      |
+| Charging             | GOOD     | Start/stop/target request and settings preservation, S-PIN mint, history success/rejection, six-read unconfirmed success, three-attempt busy retry with fresh mints, generic 429/503 terminal errors and snapshot tail.                                                                                                       |
+| Climate              | PARTIAL  | State read, start/stop, settings merge/temp write and carnet bearer; same-target reschedule, target-change sequence, start acceptance/busy defer/rejection, stop confirmation/rejection, keepalive restart/ignition pause/parked resume/expiry. Running-climate temperature change and every fallback window remain untested. |
+| Wake/refresh         | GOOD     | Ordinary cron status read without wake; S-PIN-gated bodyless wake, accepted request followed by immediate cloud read, rejection/503/network fallback, 401 forced-login attempt and no request deadline. Delayed vehicle response is not modeled in source.                                                                    |
+| Command confirmation | GOOD     | Correlation, pre-read delay, accepted/success/explicit failure, malformed/pending/5xx/network/no confirmation, typed 401; router returns success and overwrites contrary observed lock state after eight unconfirmed reads.                                                                                                   |
+| Retry/error behavior | PARTIAL  | Refresh fallback, status forced re-mint, 401 wake forced-login attempt, history polling, three-attempt charge/climate busy paths, generic 429/5xx, network failure and pending fetch without AbortSignal. Other climate retry windows and full-login throttling remain untested.                                              |
 
 ## Current quirks preserved
 
@@ -69,11 +69,14 @@ The underlying protocol and production orchestration files were not edited.
 - Charge start/stop/target use six history attempts in the router and may
   return `{ok:true}` without confirmation; explicit rejection propagates.
   Climate start stores a managed session after accepted start or a busy defer,
-  without a start-history confirmation. Wake acceptance is not a vehicle
-  response. These orchestration paths still need deeper fixture coverage.
+  without a start-history confirmation. The keepalive later confirms restarts
+  and pauses on ignition rejection. Wake acceptance is not a vehicle response.
 - S-PIN challenge stops when remaining attempts are below three. Status reads
   require carnet bearer. Cached carnet is re-minted three minutes before
   expiry, with a 25-minute fallback when the JWT lacks `exp`.
+- A climate settings GET returning 503 currently still leads to a PUT using
+  default element settings. This is observed behavior, not a safe fallback;
+  changing it belongs to a later command redesign.
 - `apiGet` maps only 401 to `VwAuthError`; 429/5xx are generic. EV busy gets a
   specialized error only for `EV_THRESHOLD_EXCEEDED`. No general Retry-After,
   deadline, cooldown or circuit breaker exists.
@@ -85,7 +88,8 @@ The underlying protocol and production orchestration files were not edited.
 No live interoperability or current VW attestation acceptance was checked.
 The login HTML scrape, server-only attestation placeholder, password/S-PIN
 throttling, vehicle-specific capabilities, real correlation timing, climate
-keepalive and runtime restart behavior still need separate future validation.
+runtime restart behavior and untested climate branches still need separate
+future validation.
 Do not add real VW probes to `pnpm test:vw`. Phase 2 can add more synthetic
 coverage while introducing narrow interfaces, and must keep any behavior
 change explicit and reviewable.

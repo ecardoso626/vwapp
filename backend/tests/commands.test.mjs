@@ -510,3 +510,121 @@ test("network failure is swallowed during history polling, then reports unconfir
     timer.mock.restore();
   }
 });
+
+test("wake maps 401 to auth, 429/503 and explicit result rejection to command errors", async () => {
+  for (const [response, Type] of [
+    [json({}, 401), VwAuthError],
+    [json({}, 429), VwCommandError],
+    [json({}, 503), VwCommandError],
+    [json({ data: { result: 7 } }), VwCommandError],
+  ]) {
+    await assert.rejects(
+      withFetchQueue(
+        [
+          ...spinRoutes(),
+          route("POST", `${API}/rvs/v1/vehicle/${UUID}/refresh`, response),
+        ],
+        () => vwForceRefresh(tokens, UUID, SPIN),
+      ),
+      Type,
+    );
+  }
+});
+
+test("wake fetch has no AbortSignal or deadline; a silent vehicle transport waits until resolved", async () => {
+  let release;
+  let reached;
+  const entered = new Promise((resolve) => {
+    reached = resolve;
+  });
+  const pending = new Promise((resolve) => {
+    release = resolve;
+  });
+  const request = withFetchQueue(
+    [
+      ...spinRoutes(),
+      route(
+        "POST",
+        `${API}/rvs/v1/vehicle/${UUID}/refresh`,
+        () => {
+          reached();
+          return pending;
+        },
+        (init) => assert.equal(init.signal, undefined),
+      ),
+    ],
+    () => vwForceRefresh(tokens, UUID, SPIN),
+  );
+  await entered;
+  let settled = false;
+  void request.then(() => {
+    settled = true;
+  });
+  await new Promise((resolve) => globalThis.setImmediate(resolve));
+  assert.equal(settled, false);
+  release(json({ data: { result: 0 } }));
+  await request;
+});
+
+test("climate off and missing summary fields normalize to false/null", async () => {
+  for (const payload of [
+    {
+      data: {
+        climateStatus: { climateStatusReport: { climateStatusInd: "off" } },
+      },
+    },
+    { data: {} },
+  ]) {
+    assert.deepEqual(
+      await withFetchQueue(
+        [
+          route(
+            "GET",
+            `${API}/ev/v1/user/${USER}/vehicle/${UUID}/summary?tempUnit=fahrenheit`,
+            json(payload),
+            bearer(CARNET),
+          ),
+        ],
+        () => vwGetClimate(CARNET, tokens, UUID),
+      ),
+      {
+        on: false,
+        remainingMin: null,
+        targetTempF: null,
+      },
+    );
+  }
+});
+
+test("failed climate settings read currently falls through to a PUT with default settings", async () => {
+  const settingsUrl = `${API}/ev/v1/vehicle/${UUID}/pretripclimate/settings?tempUnit=fahrenheit`;
+  assert.equal(
+    await withFetchQueue(
+      [
+        route("GET", settingsUrl, json({}, 503), bearer(CARNET)),
+        route(
+          "PUT",
+          settingsUrl,
+          json({ data: { result: 0, correlationId: CORRELATION } }),
+          (init) => {
+            bearer(CARNET)(init);
+            bodyJson({
+              targetTemperature: { temperature: 68, unit: "fahrenheit" },
+              climatizationWithoutExternalPower: true,
+              climatizationElementSettings: {
+                climatizationAtUnlock: true,
+                mirrorHeatingEnabled: false,
+                zoneFrontLeftEnabled: false,
+                zoneFrontRightEnabled: false,
+                zoneRearLeftEnabled: false,
+                zoneRearRightEnabled: false,
+              },
+            })(init);
+          },
+        ),
+      ],
+      () => vwSetClimateTemp(CARNET, UUID, 68),
+    ),
+    CORRELATION,
+  );
+});
