@@ -4,7 +4,9 @@ Inspection date: 2026-10-02, America/Chicago. Repository: [ecardoso626/vwapp](ht
 
 **Scope: inspection, safe baseline checks and planning only.** No application source, dependencies, credentials, signing settings or deployment configuration were changed. No VW calls, vehicle commands, wake requests, hosted authentication mutations or deployments were performed. Proposed schemas, commands and phases below are future work, not implemented features or authorization to start them.
 
-**Phase 3 update:** The voice/AI vertical slice was removed from the mobile app, Worker, shared contract, configuration, and dependencies. The 54 existing offline VW tests and 13 adapter/domain tests remain the regression baseline. Phase 4 is the next planned step.
+**Phase 4 update:** A Node HTTP composition root now reuses the existing router, InstantDB store and scheduled jobs beside the unchanged Worker. Its scheduler is opt-in while both runtimes coexist, and its lifecycle is tested with synthetic services; see [Node runtime](docs/NODE_RUNTIME.md). No persistence or mobile cutover was started.
+
+**Phase 3 update:** The voice/AI vertical slice was removed from the mobile app, Worker, shared contract, configuration, and dependencies. The 54 existing offline VW tests and 13 adapter/domain tests remain the regression baseline. Phase 4 followed as a separate runtime step.
 
 **Phase 2 update:** The 54 existing offline VW tests are joined by 13 adapter/domain tests. A typed, additive VW adapter and conservative vehicle model now exist without changing current Worker/Instant call paths or VW protocol behavior; see [the domain model](docs/DOMAIN_MODEL.md). Phase 1.1 covered the main VW request and parsing paths plus charging, climate keepalive, wake and representative retries; see [VW protocol test coverage](docs/VW_PROTOCOL_TEST_COVERAGE.md). The Phase 0 baseline and its historical statements remain as recorded. Production VW behavior was not changed. [BuzzKey product identity](docs/PRODUCT_IDENTITY.md) now fixes the future native build identifiers, and [design direction](docs/design/DESIGN_DIRECTION.md) records the later UI goals.
 
@@ -490,14 +492,12 @@ Each phase is a separately reviewable change. Suggested checkpoint names below a
 - **Validation:** offline VW and adapter suites, repository static checks, Worker dry-run bundle and mobile JavaScript export. Native iOS compilation remains a later gate because `ios/` is generated.
 - **Exit:** no voice/AI runtime path, dependency or microphone permission required by the app.
 
-### Phase 4 — Node runtime in isolated mock mode
+### Phase 4 — Node runtime in isolated mock mode (implemented)
 
-- **Objective/files:** Node composition root, oRPC Node adapter, validated config, repository interface, scheduler lifecycle; temporary legacy adapter permitted behind boundary.
-- **Prerequisites/tests:** Phases 1–3; port protocol tests to Node, offline HTTP tests, nonoverlap/shutdown tests; no real credentials.
-- **Risks:** cookie/fetch differences, lost waitUntil work or two schedulers; keep old entry isolated, new scheduler disabled outside mocks.
-- **Git checkpoint:** `phase4-node-mock`.
-- **Rollback:** revert Node entry; existing Worker path untouched until later removal.
-- **Exit:** Node serves mocked API and executes fixture protocol identically; no live cutover.
+- **Result:** Node built-in HTTP server and oRPC Node adapter reuse the current router and InstantDB store. Typed config, a safe `/health` route, a persistent nonoverlapping scheduler, and SIGTERM/SIGINT shutdown are isolated under `backend/node/`; see [NODE_RUNTIME.md](docs/NODE_RUNTIME.md).
+- **Validation:** local HTTP/API and fake-clock tests use synthetic services and fail-closed fetch; the 54 VW and 13 adapter/domain tests, package checks, Worker bundle and Node bundle remain gates. No real credentials or deployment were used.
+- **Preservation:** the Worker entry and cron remain unchanged. The Node scheduler defaults off while both runtimes coexist, preventing duplicate VW work against one InstantDB account. No persistence interface or SQLite schema was introduced.
+- **Limit:** no live cutover, mobile switch, or native/container deployment; active jobs without a deadline may delay graceful shutdown.
 
 ### Phase 5 — SQLite and encryption foundation
 
@@ -630,8 +630,8 @@ These do not block Phase 0 or synthetic characterization:
 - **Apple Review/Demo Mode:** Reviewers must be able to use deterministic simulated state and controls with reviewer username/password supplied through App Store Connect, without Tailscale, the owner's Umbrel host, real VW credentials or the owner's vehicle. Put this behind an explicit environment/data-source boundary so demo requests cannot reach the real VW adapter or command scheduler. No review mode was implemented in Phase 1.
 - **Analytics:** Future first-class Analytics includes trips, miles, mi/kWh, battery/range/charging/climate history, and effects of outside temperature, speed, trip length and cabin setpoint. Any personalized model must distinguish measured variables from unavailable ones and avoid causal claims from correlation. Phase 1 chose no persistence schema. The provisional coarse-sampling/retention suggestions in sections 21–22 must be revisited before schema design so trip segmentation and multivariable analysis remain possible where VW supplies sufficient telemetry.
 
-## 34. Exact recommended next agent task (updated after Phase 3)
+## 34. Exact recommended next agent task (updated after Phase 4)
 
-> Implement **Phase 4 only** in `/Users/cardosofam/vwapp`: add an isolated Node HTTP composition root and mock-only runtime around the existing typed domain/adapter boundary. Keep the current Worker/InstantDB app buildable and all VW production protocol behavior unchanged. Test Node request routing, scheduler lifecycle and shutdown entirely offline. Do not start persistence migration, use live VW credentials, or deploy.
+> Implement **Phase 5 only** in `/Users/cardosofam/vwapp`: add a synthetic-data SQLite repository and versioned migration foundation with encryption for every reusable secret field, then test transactions, ciphertext tampering, key rotation and backup/restore offline. Keep Worker/InstantDB and Node mock paths buildable; do not cut over mobile, import real data, use VW credentials, or deploy.
 
-Phase 3 removed only the voice/AI vertical slice. The Worker, InstantDB and vehicle-control paths remain in place for Phase 4.
+Phase 4 added the Node runtime beside the Worker. InstantDB and the current mobile data/control paths remain unchanged.

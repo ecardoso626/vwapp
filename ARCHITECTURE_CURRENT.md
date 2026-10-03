@@ -2,7 +2,7 @@
 
 Inspected 2026-10-02 America/Chicago. Repository: `https://github.com/ecardoso626/vwapp`, branch `umbrel-selfhosted`, commit `15500a78ff6a33310e443c91a9b6c3e62554b2cc` (`v1.0.24`). The local fork at `/Users/cardosofam/vwapp` was clean. Its source was byte-for-byte equal to the separate upstream reference checkout used for dependency installation and validation. No VW requests were made; upstream comments saying “verified live” describe the author's past observations, not verification performed in this inspection.
 
-This document is a historical Phase 0 source snapshot. Phase 3 removed the voice/AI paths described below; see `MIGRATION_PLAN.md` §17 for the current state.
+This document is a historical Phase 0 source snapshot. Phase 3 removed the voice/AI paths described below; Phase 4 added a separate Node runtime beside the Worker. See `MIGRATION_PLAN.md` §17 and `docs/NODE_RUNTIME.md` for the current state.
 
 Source references below are repository-relative paths and original line numbers. The immutable [source tree](https://github.com/ecardoso626/vwapp/tree/15500a78ff6a33310e443c91a9b6c3e62554b2cc) is the baseline. See `MIGRATION_PLAN.md` for proposals and `PHASE0_COMMAND_LOG.md` for commands/results.
 

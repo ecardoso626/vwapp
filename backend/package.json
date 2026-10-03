@@ -11,10 +11,13 @@
     "auth-check": "node --env-file=.dev.vars scripts/auth-check.ts",
     "wipe": "node --env-file=.dev.vars scripts/wipe.ts",
     "cf-typegen": "wrangler types",
-    "typecheck": "tsc --noEmit && tsc --noEmit -p scripts/tsconfig.json",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p scripts/tsconfig.json && tsc --noEmit -p node/tsconfig.json",
     "lint": "eslint .",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "node:build": "esbuild node/main.ts --bundle --platform=node --format=esm --target=node22 --main-fields=module,main --outfile=../dist/node/main.mjs",
+    "node:start": "pnpm run node:build && node ../dist/node/main.mjs",
+    "node:test": "node --import ./tests/register.mjs --test node/tests/*.test.mjs"
   },
   "dependencies": {
     "@instantdb/admin": "^1.0.52",
@@ -25,7 +28,9 @@
   },
   "devDependencies": {
     "@orpc/client": "^1.14.8",
-    "wrangler": "latest"
+    "wrangler": "latest",
+    "@types/node": "26.1.1",
+    "esbuild": "0.28.1"
   },
   "private": true
 }
