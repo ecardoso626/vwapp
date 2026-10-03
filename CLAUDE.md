@@ -127,23 +127,6 @@ dashboard auto-fires one `vehicle.refresh` when a vehicle has no snapshot
 (plus an explicit empty-state card) — crons never fire on a clock in dev, so
 without these a fresh login would show a blank dashboard.
 
-**Voice assistant (`assistant.ask` RPC, `backend/src/assistant.ts`):** a
-press-and-hold mic on the dashboard (`app/src/components/voice-control.tsx`,
-`expo-audio` — records m4a, sends base64) drives a one-shot pipeline run
-entirely on **Cloudflare Workers AI** via the `env.AI` binding (no external AI
-keys): Whisper STT → **GLM-5.2** (`@cf/zai-org/glm-5.2`) tool-calling loop →
-MeloTTS, returning `{transcript, reply, audioBase64}` the app speaks + shows
-(text fades after playback). The LLM's tools are the **existing** vehicle
-procedures, reused verbatim through an in-process `createRouterClient(router,
-{context})` (status reads hit `getLatestSnapshot` directly) — no duplicated
-VW/S-PIN/climate orchestration. GLM-5.2 post-dates the generated
-`worker-configuration.d.ts`, so its call uses one isolated cast against the
-binding's untyped-model overload (STT/TTS are typed); the chat I/O is the
-unified OpenAI-style `ChatCompletions*` shape. Voice unlock IS enabled (no extra
-confirmation, unlike the LockControl button) — a deliberate choice. The exact
-Workers AI request/response shapes (GLM tool_calls field, MeloTTS audio format)
-still want a live confirmation against the account.
-
 **VW integration — critical constraint:** the account is **North America
 (myVW / legacy Car-Net)**: host `b-h-s.spr.us00.p.con-veh.net`, identity
 `identity.na.vwgroup.io`. Do NOT use the EU CARIAD stack
@@ -385,8 +368,6 @@ used two ways, and **both perform real VW password logins** (mind the throttle
   the `deploy` script). `app/.env` =
   `EXPO_PUBLIC_INSTANT_APP_ID` + `EXPO_PUBLIC_API_URL` (both bundled; recreate
   per clone) and the config-time-only `EXPO_OWNER` / `EAS_PROJECT_ID` /
-  `IOS_BUNDLE_IDENTIFIER` read by `app/app.config.ts`. The voice assistant adds
-  **no** secret — it uses the Workers AI `AI` binding (`backend/wrangler.jsonc`),
-  which bills to the deploy account; that account just needs Workers AI enabled.
+  `IOS_BUNDLE_IDENTIFIER` read by `app/app.config.ts`.
 - Routes live in `app/src/app/` only; providers/utilities stay outside it.
   Kebab-case filenames.

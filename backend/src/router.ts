@@ -1,6 +1,5 @@
-import { createRouterClient, implement, ORPCError } from "@orpc/server";
+import { implement, ORPCError } from "@orpc/server";
 import { contract, type VehicleDTO } from "@vwapp/contract";
-import { runAssistant, type VehicleCaller } from "./assistant";
 import { seal, sha256Hex, timingSafeEqual, unseal } from "./crypto";
 import type { AppEnv } from "./env";
 import { isMapsConfigured, signSnapshotUrl } from "./maps";
@@ -69,10 +68,6 @@ export interface RouterContext {
   db: Db;
   /** Instant user id from the verified guest token, or null if unauthenticated. */
   userId: string | null;
-  /** Keeps background work (e.g. the voice assistant's fire-and-forget vehicle
-   *  commands) alive past the HTTP response — without it the Worker kills the
-   *  in-flight VW request once we return. Bound from the fetch ExecutionContext. */
-  waitUntil: (promise: Promise<unknown>) => void;
 }
 
 const os = implement(contract).$context<RouterContext>();
@@ -1114,29 +1109,6 @@ const parkedMapUrl = os.vehicle.parkedMapUrl.handler(
   },
 );
 
-// Voice assistant: transcribe → GLM-5.2 tool loop → speak. The LLM's tools are
-// the existing vehicle procedures, reused verbatim through a server-side router
-// caller (same context) so there's no duplicated VW/S-PIN/climate logic.
-const assistantAsk = os.assistant.ask.handler(async ({ input, context }) => {
-  const userId = requireUser(context);
-  const user = await getUser(context.db, userId);
-  if (user.account === null)
-    throw new ORPCError("UNAUTHORIZED", { message: "not logged in" });
-  const vehicle = pickVehicle(user, input.uuid);
-  // createRouterClient runs procedures in-process with this request's context.
-  const caller = createRouterClient(router, {
-    context,
-  }) as unknown as VehicleCaller;
-  return runAssistant({
-    env: context.env,
-    db: context.db,
-    caller,
-    vehicle,
-    audioBase64: input.audioBase64,
-    waitUntil: context.waitUntil,
-  });
-});
-
 export const router = os.router({
   auth: { checkCredentials, login, me, logout },
   vehicle: {
@@ -1155,7 +1127,6 @@ export const router = os.router({
     setMessageDeleted: setMessageDeletedHandler,
     parkedMapUrl,
   },
-  assistant: { ask: assistantAsk },
 });
 
 export type AppRouter = typeof router;

@@ -213,8 +213,8 @@ export const contract = {
     activity: oc
       .input(z.object({ uuid: z.string().optional() }))
       .output(z.object({ events: z.array(activityEventSchema) })),
-    /** myVW message-center inbox. S-PIN-gated read. (Used in-process by the
-        voice assistant; the app reads messages from InstantDB instead.) */
+    /** myVW message-center inbox. S-PIN-gated read. The app reads messages
+     *  from InstantDB instead. */
     messages: oc
       .input(z.object({ uuid: z.string().optional() }))
       .output(z.object({ messages: z.array(inboxMessageSchema) })),
@@ -263,32 +263,6 @@ export const contract = {
       // url is null when the backend has no Apple Maps signing keys configured
       // (the parked-map feature is optional — the app falls back to coords).
       .output(z.object({ url: z.string().nullable() })),
-  },
-  assistant: {
-    /**
-     * Voice assistant: send a short recorded voice note (base64 audio) and get
-     * back a transcript, a short reply, and synthesized speech (base64 audio,
-     * null if TTS failed). The Worker runs the whole chain on Cloudflare
-     * Workers AI — speech-to-text, an LLM that calls vehicle tools (the same
-     * status reads and S-PIN-gated commands the other procedures expose), and
-     * text-to-speech. Defaults to the single vehicle when uuid is omitted.
-     */
-    ask: oc
-      .input(
-        z.object({
-          uuid: z.string().optional(),
-          /** Base64-encoded recorded audio (m4a/aac from the app recorder). */
-          audioBase64: z.string().min(1),
-        }),
-      )
-      .output(
-        z.object({
-          transcript: z.string(),
-          reply: z.string(),
-          /** Base64 WAV (PCM) of the spoken reply, or null if TTS was unavailable. */
-          audioBase64: z.string().nullable(),
-        }),
-      ),
   },
 };
 

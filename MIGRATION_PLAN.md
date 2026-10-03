@@ -4,6 +4,8 @@ Inspection date: 2026-10-02, America/Chicago. Repository: [ecardoso626/vwapp](ht
 
 **Scope: inspection, safe baseline checks and planning only.** No application source, dependencies, credentials, signing settings or deployment configuration were changed. No VW calls, vehicle commands, wake requests, hosted authentication mutations or deployments were performed. Proposed schemas, commands and phases below are future work, not implemented features or authorization to start them.
 
+**Phase 3 update:** The voice/AI vertical slice was removed from the mobile app, Worker, shared contract, configuration, and dependencies. The 54 existing offline VW tests and 13 adapter/domain tests remain the regression baseline. Phase 4 is the next planned step.
+
 **Phase 2 update:** The 54 existing offline VW tests are joined by 13 adapter/domain tests. A typed, additive VW adapter and conservative vehicle model now exist without changing current Worker/Instant call paths or VW protocol behavior; see [the domain model](docs/DOMAIN_MODEL.md). Phase 1.1 covered the main VW request and parsing paths plus charging, climate keepalive, wake and representative retries; see [VW protocol test coverage](docs/VW_PROTOCOL_TEST_COVERAGE.md). The Phase 0 baseline and its historical statements remain as recorded. Production VW behavior was not changed. [BuzzKey product identity](docs/PRODUCT_IDENTITY.md) now fixes the future native build identifiers, and [design direction](docs/design/DESIGN_DIRECTION.md) records the later UI goals.
 
 Companion evidence: [current architecture](ARCHITECTURE_CURRENT.md), [security design and threat model](SECURITY_NOTES.md), [command/results ledger](PHASE0_COMMAND_LOG.md). Source paths in these documents are repository-relative. Source observations take precedence over stale README/CLAUDE comments; live interoperability remains unverified.
@@ -195,11 +197,11 @@ Decisions are migration targets; no dependencies changed in Phase 0. Keep exact 
 | `@instantdb/admin`, react-native, core                                                        | REPLACE                              | SQLite repositories, backend read APIs, device auth; remove packages only after all consumers are gone.                                                                                            |
 | `@vwapp/db`                                                                                   | REPLACE                              | Currently Instant schema/types; domain/API types belong in contract, SQLite schema server-side. Remove package only after imports disappear.                                                       |
 | Worker runtime, Wrangler/workerd/generated CF types                                           | REPLACE then REMOVE                  | Node entry/config/scheduler; temporary type generation retained while Worker source still exists.                                                                                                  |
-| Workers AI binding/models                                                                     | REMOVE                               | Voice is unwanted; no replacement AI service.                                                                                                                                                      |
+| Workers AI binding/models                                                                     | REMOVED (Phase 3)                    | Voice was unwanted; no replacement AI service.                                                                                                                                                     |
 | EAS CLI scripts/config/owner/project/update URL                                               | REMOVE                               | Local Xcode and App Store Connect release path; EAS CLI invoked by scripts, not a runtime requirement.                                                                                             |
 | `expo-updates` and OTA config                                                                 | REMOVE                               | Full native releases through TestFlight; no OTA target. Verify generated native configuration after removal.                                                                                       |
-| `expo-audio`                                                                                  | REMOVE                               | Observed use is voice recording/playback. Confirm import/config search before removing microphone permission.                                                                                      |
-| `expo-file-system/legacy` import                                                              | INVESTIGATE                          | Used by voice through transitive package, not a direct manifest dependency. Remove voice import, let dependency resolution retain any Expo-required package.                                       |
+| `expo-audio`                                                                                  | REMOVED (Phase 3)                    | It was used only for voice recording/playback; microphone permission was removed with it.                                                                                                          |
+| `expo-file-system/legacy` import                                                              | REMOVED (Phase 3)                    | Its voice-only import was deleted; `expo-file-system` was not a direct manifest dependency.                                                                                                        |
 | AsyncStorage, NetInfo                                                                         | INVESTIGATE                          | Instant requires these; a future nonsecret cache/connectivity layer may still need them. Never use AsyncStorage for signing keys.                                                                  |
 | `react-native-get-random-values`                                                              | INVESTIGATE                          | Instant/crypto polyfill relationship; keep secure randomness until new identity stack proves its replacement.                                                                                      |
 | Gesture Handler, Reanimated, Worklets                                                         | KEEP                                 | Non-voice swipe/animation UI uses them.                                                                                                                                                            |
@@ -261,24 +263,22 @@ No mobile direct DB transactions need migration. Most apparent optimism is local
 
 ## 16. Cloudflare replacement map
 
-| Current use                                     | Node replacement                                                                                                    |
-| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| Worker `fetch`, ExecutionContext, `/rpc`        | Node HTTP server and oRPC Node adapter; explicit lifecycle/context.                                                 |
-| `scheduled`, one-minute Wrangler cron           | In-process scheduler with nonoverlap, shutdown and restart reconciliation; no host cron required initially.         |
-| `ctx.waitUntil` for poll/climate/assistant      | Await supervised work or persist durable jobs; remove voice jobs. Never detach a critical promise without recovery. |
-| `Env` bindings                                  | Startup-validated nonsecret config + protected secret-file reads.                                                   |
-| `AI` binding                                    | Remove voice pipeline; no substitute service.                                                                       |
-| `nodejs_compat` / workerd globals               | Standard Node web APIs; characterize runtime-sensitive fetch/redirect/cookie/crypto semantics.                      |
-| Wrangler deployment, secret bulk, observability | Docker image/Compose, mounted config/secrets, safe structured logs/health.                                          |
-| CF generated declarations                       | Remove after last Worker/AI type consumer disappears; use Node types.                                               |
+| Current use                                     | Node replacement                                                                                            |
+| ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| Worker `fetch`, ExecutionContext, `/rpc`        | Node HTTP server and oRPC Node adapter; explicit lifecycle/context.                                         |
+| `scheduled`, one-minute Wrangler cron           | In-process scheduler with nonoverlap, shutdown and restart reconciliation; no host cron required initially. |
+| `ctx.waitUntil` for poll/climate                | Await supervised work or persist durable jobs. Never detach a critical promise without recovery.            |
+| `Env` bindings                                  | Startup-validated nonsecret config + protected secret-file reads.                                           |
+| `AI` binding                                    | Removed in Phase 3; no substitute service.                                                                  |
+| `nodejs_compat` / workerd globals               | Standard Node web APIs; characterize runtime-sensitive fetch/redirect/cookie/crypto semantics.              |
+| Wrangler deployment, secret bulk, observability | Docker image/Compose, mounted config/secrets, safe structured logs/health.                                  |
+| CF generated declarations                       | Remove after last Worker/AI type consumer disappears; use Node types.                                       |
 
 No D1/KV/R2/Durable Objects/Cloudflare queues need migrating. Maps JWT signing is portable crypto, not intrinsically a Cloudflare feature. Worker source bundling passed, but that does not prove a Node server port or scheduled-job recovery.
 
-## 17. Voice/AI removal plan
+## 17. Voice/AI removal — Phase 3 complete
 
-Remove the assistant RPC contract and router procedure, `backend/src/assistant.ts`, `backend/scripts/assistant-smoke.ts`, `app/src/components/voice-control.tsx`, dashboard imports/rendering and audio-only native permissions/configuration. Remove AI binding/types after consumers are gone. Actual models in source are Whisper large-v3-turbo, GPT-OSS 120B and Aura-2; comments describing GLM/Melo are stale.
-
-Observed voice path records m4a, reads base64 through `expo-file-system/legacy`, invokes cloud STT/tool-calling/TTS, plays returned audio and can issue unlock without the button's confirmation. It logs transcripts/tool results. `expo-audio` is voice-only in inspected app; file-system is transitively installed, so remove its import rather than blindly forcing transitive package removal. Preserve shared UI/gesture/crypto/native packages. Remove voice reverse-geocoding consumer; retain parked map behavior until a separate native-map change. Validate no assistant routes, mic UI, model identifiers, transcript logs or microphone permission remain, while non-voice controls still compile/run against mocks.
+The assistant RPC contract/router procedure, Worker inference pipeline, smoke script, dashboard microphone control, `expo-audio` dependency/plugin, microphone permission, Workers AI binding and voice-only reverse geocoding were removed. Parked-map signing, shared controls and the existing Worker/InstantDB vehicle flows remain. The untracked/generated native project will be regenerated later without the removed Expo audio plugin; there is no tracked `ios/` project to edit. Historical Phase 0 voice observations remain in the architecture and security evidence documents, explicitly marked as historical.
 
 ## 18. Expo/EAS separation
 
@@ -422,7 +422,7 @@ Future workflow, not executed here:
 6. For release, ensure Release build has the private API origin at bundle time and no dev-host fallback dependency. Select generic iOS device/Any iOS Device destination and Product → Archive in Xcode. Validate archive in Organizer and distribute to App Store Connect using Apple credentials. Increment local build number for each upload. [Expo local production build guidance](https://docs.expo.dev/guides/local-app-production/).
 7. After processing, complete App Store Connect/TestFlight metadata, export-compliance questions and tester configuration; install through TestFlight. No EAS build/submit/update or Expo account is part of this path. [Apple TestFlight overview](https://developer.apple.com/help/app-store-connect/test-a-beta-version/testflight-overview).
 
-Native module inventory includes Expo modules/secure-store/crypto/UI/symbols/router dependencies, RN/Hermes, safe-area/screens/gesture/reanimated/worklets/keyboard, SVG and currently audio/updates. Removing audio/updates changes native dependencies, requiring fresh local pod/native validation. Backend Apple Maps key configuration is unrelated to mobile distribution signing. Do not request device location/microphone entitlements for features that no longer use them. Installed Xcode and JS export are encouraging evidence, but CocoaPods resolution, simulator compilation, signing, archive and TestFlight remain distinct unverified gates.
+Native module inventory includes Expo modules/secure-store/crypto/UI/symbols/router dependencies, RN/Hermes, safe-area/screens/gesture/reanimated/worklets/keyboard, SVG and updates. Phase 3 removed audio, requiring fresh local pod/native validation. Backend Apple Maps key configuration is unrelated to mobile distribution signing. Do not request device location/microphone entitlements for features that no longer use them. Installed Xcode and JS export are encouraging evidence, but CocoaPods resolution, simulator compilation, signing, archive and TestFlight remain distinct unverified gates.
 
 ## 28. App/backend compatibility
 
@@ -484,14 +484,11 @@ Each phase is a separately reviewable change. Suggested checkpoint names below a
 - **Preservation:** the adapter delegates protocol calls; current token retry, busy/confirmation budgets, climate keepalive, optimistic lock snapshot and persistence tails stay with existing callers. Unknown lock/closures/climate remain unknown in the new model even where the legacy DTO collapses evidence.
 - **Exit:** a usable typed boundary exists without changing production request behavior, mobile queries, persistence or deployment.
 
-### Phase 3 — remove voice vertical slice
+### Phase 3 — remove voice vertical slice (implemented)
 
-- **Objective/files:** assistant/voice component/routes/contract/scripts, AI binding, audio-only configuration/dependency; retain shared controls/native libraries.
-- **Prerequisites/tests:** baseline and fixture suite; import/config audit, static checks, mock non-voice UI and native config/export validation.
-- **Risks:** removing shared file-system/native packages or leaving mic permission/assistant route; verify full slice.
-- **Git checkpoint:** `phase3-no-voice`.
-- **Rollback:** revert this isolated removal if non-voice behavior regresses; no replacement AI service.
-- **Exit:** no voice/AI runtime path, dependency or microphone permission required by app.
+- **Result:** removed assistant code/routes/contract/scripts, AI binding, audio-only dependency/configuration and microphone UI/permission; retained shared controls, parked maps, Worker and InstantDB.
+- **Validation:** offline VW and adapter suites, repository static checks, Worker dry-run bundle and mobile JavaScript export. Native iOS compilation remains a later gate because `ios/` is generated.
+- **Exit:** no voice/AI runtime path, dependency or microphone permission required by the app.
 
 ### Phase 4 — Node runtime in isolated mock mode
 
@@ -633,8 +630,8 @@ These do not block Phase 0 or synthetic characterization:
 - **Apple Review/Demo Mode:** Reviewers must be able to use deterministic simulated state and controls with reviewer username/password supplied through App Store Connect, without Tailscale, the owner's Umbrel host, real VW credentials or the owner's vehicle. Put this behind an explicit environment/data-source boundary so demo requests cannot reach the real VW adapter or command scheduler. No review mode was implemented in Phase 1.
 - **Analytics:** Future first-class Analytics includes trips, miles, mi/kWh, battery/range/charging/climate history, and effects of outside temperature, speed, trip length and cabin setpoint. Any personalized model must distinguish measured variables from unavailable ones and avoid causal claims from correlation. Phase 1 chose no persistence schema. The provisional coarse-sampling/retention suggestions in sections 21–22 must be revisited before schema design so trip segmentation and multivariable analysis remain possible where VW supplies sufficient telemetry.
 
-## 34. Exact recommended next agent task (updated after Phase 2)
+## 34. Exact recommended next agent task (updated after Phase 3)
 
-> Implement **Phase 3 only** in `/Users/cardosofam/vwapp`: remove the voice/AI vertical slice from the Worker, shared contract, mobile app, scripts, AI binding and audio-only configuration/dependency, while retaining shared vehicle controls and the existing VW/Instant flows. Verify no assistant route or microphone permission remains. Run the offline VW and adapter suites, repository static checks and safe Worker bundle validation. Do not start the Node runtime or persistence migration, use live VW credentials, or deploy.
+> Implement **Phase 4 only** in `/Users/cardosofam/vwapp`: add an isolated Node HTTP composition root and mock-only runtime around the existing typed domain/adapter boundary. Keep the current Worker/InstantDB app buildable and all VW production protocol behavior unchanged. Test Node request routing, scheduler lifecycle and shutdown entirely offline. Do not start persistence migration, use live VW credentials, or deploy.
 
-Phase 2 added only the typed vehicle domain, VW adapter, offline tests and documentation. The current application paths remain functional.
+Phase 3 removed only the voice/AI vertical slice. The Worker, InstantDB and vehicle-control paths remain in place for Phase 4.

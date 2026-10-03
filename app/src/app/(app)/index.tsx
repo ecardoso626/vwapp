@@ -3,7 +3,6 @@ import { ChargeControl } from "@/components/charge-control";
 import { ClimateControl } from "@/components/climate-control";
 import { IosButton, IosCard, IosGroup, IosRow } from "@/components/ios-list";
 import { LockControl } from "@/components/lock-control";
-import { VoiceControl } from "@/components/voice-control";
 import { db } from "@/db";
 import { agoLabel, useNow } from "@/hooks/use-now";
 import { useTransientError } from "@/hooks/use-transient-error";
@@ -151,13 +150,10 @@ export default function Dashboard() {
         alwaysBounceVertical
         contentInsetAdjustmentBehavior="automatic"
         // paddingTop 2, not 16: the native large title already brings its own
-        // bottom margin, and the VIN should read as its subline. paddingBottom
-        // clears the floating mic button (VoiceControl) so the last card's
-        // controls aren't trapped under it.
+        // bottom margin, and the VIN should read as its subline.
         contentContainerStyle={{
           padding: 16,
           paddingTop: 2,
-          paddingBottom: 120,
           gap: 16,
         }}
         refreshControl={
@@ -246,8 +242,6 @@ export default function Dashboard() {
           />
         ) : null}
       </ScrollView>
-      {/* Floating press-and-hold voice assistant, over the dashboard. */}
-      {vehicle !== undefined ? <VoiceControl uuid={vehicle.uuid} /> : null}
     </>
   );
 }

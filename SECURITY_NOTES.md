@@ -1,5 +1,7 @@
 # Security notes — proposed architecture, not implemented
 
+This is historical Phase 0 evidence. Phase 3 removed the voice/AI source, binding and microphone permission mentioned below; old logs or cached recordings, if any, were outside this source-only change.
+
 Phase 0, 2026-10-02. Baseline: `ecardoso626/vwapp`, `umbrel-selfhosted`, `15500a78ff6a33310e443c91a9b6c3e62554b2cc`. This is a source review and design, not a penetration test or proof of current VW interoperability. No real credentials were requested, read, stored or used.
 
 ## Current trust boundaries and findings
