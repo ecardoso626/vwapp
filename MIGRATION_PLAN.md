@@ -4,13 +4,15 @@ Inspection date: 2026-10-02, America/Chicago. Repository: [ecardoso626/vwapp](ht
 
 **Scope: inspection, safe baseline checks and planning only.** No application source, dependencies, credentials, signing settings or deployment configuration were changed. No VW calls, vehicle commands, wake requests, hosted authentication mutations or deployments were performed. Proposed schemas, commands and phases below are future work, not implemented features or authorization to start them.
 
+**Phase 1 update:** Offline characterization tests now cover the main VW request and parsing paths; see [VW protocol test coverage](docs/VW_PROTOCOL_TEST_COVERAGE.md). The Phase 0 baseline and its historical statements remain as recorded. Production VW behavior was not changed. [BuzzKey product identity](docs/PRODUCT_IDENTITY.md) now fixes the future native build identifiers, and [design direction](docs/design/DESIGN_DIRECTION.md) records the later UI goals.
+
 Companion evidence: [current architecture](ARCHITECTURE_CURRENT.md), [security design and threat model](SECURITY_NOTES.md), [command/results ledger](PHASE0_COMMAND_LOG.md). Source paths in these documents are repository-relative. Source observations take precedence over stale README/CLAUDE comments; live interoperability remains unverified.
 
 ## 1. Executive recommendation
 
 **Migration practical: YES WITH CAVEATS.** Keep the native React Native/Expo application, Expo Router, existing native UI and oRPC contract. Put a conventional Node service around the existing North American VW protocol and orchestration. Make that service the phone's only data/control boundary. Use one SQLite database, one scheduler and one command manager for this household. Deploy as an ordinary ARM64 Docker Compose service on the existing UmbrelOS host.
 
-The largest external risk is continued VW acceptance of the reverse-engineered authentication flow, especially its `play_integrity_token="unavailable"` workaround. Source inspection cannot establish whether VW accepts it today. The largest internal risk is changing subtle session, S-PIN, settings and command-confirmation behavior without characterization tests. There are currently no such tests.
+The largest external risk is continued VW acceptance of the reverse-engineered authentication flow, especially its `play_integrity_token="unavailable"` workaround. Source inspection and offline tests cannot establish whether VW accepts it today. Phase 1 added behavioral coverage for the main protocol paths, including unconfirmed lock behavior; complex climate keepalive and some retry paths still need characterization before modification.
 
 Do not perform a Cloudflare/Instant substitution while preserving two frontend data channels. Preserve the VW client **and the surrounding orchestration**, introduce interfaces around them, then move reads and commands through one authenticated API. Separate observed state from requested state; the current lock path writes the requested lock value even without confirmed execution. Complete encryption, device authentication, replay protection and command crash handling before any live cutover. UI redesign is last.
 
@@ -603,8 +605,8 @@ Each phase is a separately reviewable change. Suggested checkpoint names below a
 
 ## 32. Risks and blockers
 
-1. **External VW viability unverified.** Attestation placeholder and HTML scrape are fragile; static passing tests cannot establish current service acceptance. Do not promise a server-only fix if genuine device attestation becomes mandatory.
-2. **No behavioral baseline yet.** Protocol and orchestration need characterization before runtime/storage work. Existing `pnpm test` is only static validation.
+1. **External VW viability unverified.** Attestation placeholder and HTML scrape are fragile; offline passing tests cannot establish current service acceptance. Do not promise a server-only fix if genuine device attestation becomes mandatory.
+2. **Partial behavioral baseline.** Phase 1 fixtures protect core protocol paths and the optimistic lock outcome. Climate keepalive, all router retry branches and hosted account-sharing flows remain incomplete. Existing `pnpm test` is still static validation; `pnpm test:vw` runs behavioral tests.
 3. **Native build unverified.** Expo 57 differs from repository prose; CocoaPods absent, no generated iOS project. Simulator/native compilation is a real migration gate.
 4. **Command truthfulness.** Lock optimism, swallowed confirmation/wake errors and deferred climate mean current success often means accepted/best-effort. Fix intentionally after tests.
 5. **Credential exposure surface.** Current tokens are plaintext server-only fields; raw error/probe/voice logs can leak private data. Protect all reusable capabilities before cutover.
@@ -617,7 +619,7 @@ Each phase is a separately reviewable change. Suggested checkpoint names below a
 
 These do not block Phase 0 or synthetic characterization:
 
-- Stable iOS bundle ID, display name, minimum supported phone/iOS and whether generated native project is committed.
+- Minimum supported phone/iOS and whether the generated native project is committed. The name, bundle ID, SKU and Apple App ID are fixed in [PRODUCT_IDENTITY.md](docs/PRODUCT_IDENTITY.md).
 - Is this a fresh personal backend, or is there an existing owned Instant dataset/session to import? No real data was inspected.
 - Exact Umbrel data path, tailnet HTTPS hostname/Serve readiness, allowed devices and backup/key recovery location.
 - Default history/location retention and whether messages/climate session history matter long term.
@@ -626,8 +628,15 @@ These do not block Phase 0 or synthetic characterization:
 - Whether native map replacement belongs in first native release or immediately after; APNs/widgets remain optional.
 - Whether later live auth/read validation is desired before broad migration investment. It must be separately authorized and must not quietly wake/control the vehicle.
 
-## 34. Exact recommended next agent task
+### Durable product requirements recorded after Phase 0
 
-> Implement **Phase 1 only** in `/Users/cardosofam/vwapp` on the user-approved working branch: add an offline characterization test harness and fully synthetic fixtures for the existing production VW client and its token/status/command orchestration. Cover OAuth redirects/cookies/PKCE and grant payloads; token refresh/reuse; UUID discovery; S-PIN challenge/hash/attempt guard and carnet caching; status normalization; exact lock/unlock/charge/climate/wake requests; correlation/history success, rejection and unconfirmed behavior; and existing retry/timeout ambiguities. Default-deny all outbound network in tests and use fake time. Preserve current production protocol behavior, including documenting current optimistic lock success. Do not use real credentials, call VW, wake/control a vehicle, migrate runtime/storage/auth, remove dependencies, redesign UI or deploy. Run the new behavioral suite plus existing safe static checks, report any minimal test seams and protected-source diffs, then stop for review.
+- **Native experience:** BuzzKey remains a TestFlight-distributed iPhone app. The intended Home, Analytics and Settings navigation, light/dark modes, orange accent, prominent status, Camp Mode and the concept image are recorded in [DESIGN_DIRECTION.md](docs/design/DESIGN_DIRECTION.md). No Phase 1 UI changes were made.
+- **Owner access:** The future app-specific device key/NIP-98 design should use iOS Keychain, Face ID with device-passcode fallback, and optional fresh authentication for sensitive actions such as unlock. The precise server-verifiable assurance model remains a later security design decision; no authentication was implemented in Phase 1.
+- **Apple Review/Demo Mode:** Reviewers must be able to use deterministic simulated state and controls with reviewer username/password supplied through App Store Connect, without Tailscale, the owner's Umbrel host, real VW credentials or the owner's vehicle. Put this behind an explicit environment/data-source boundary so demo requests cannot reach the real VW adapter or command scheduler. No review mode was implemented in Phase 1.
+- **Analytics:** Future first-class Analytics includes trips, miles, mi/kWh, battery/range/charging/climate history, and effects of outside temperature, speed, trip length and cabin setpoint. Any personalized model must distinguish measured variables from unavailable ones and avoid causal claims from correlation. Phase 1 chose no persistence schema. The provisional coarse-sampling/retention suggestions in sections 21–22 must be revisited before schema design so trip segmentation and multivariable analysis remain possible where VW supplies sufficient telemetry.
 
-Phase 0 ends with these documents. No Phase 1 implementation is included.
+## 34. Exact recommended next agent task (updated after Phase 1)
+
+> Implement **Phase 2 only** in `/Users/cardosofam/vwapp`: introduce additive vehicle-domain and VW adapter interfaces around the existing production protocol, keeping the current Worker/Instant app functional and the source-backed request behavior unchanged. Use the Phase 1 offline suite as a regression gate; first extend synthetic tests for any protocol/orchestration path that must be touched, especially climate keepalive or router retries. Represent unknown capability/state and data freshness explicitly. Keep BuzzKey product identity, future Review/Demo Mode, and analytics telemetry needs visible without implementing UI redesign, persistence schema, authentication, deployment or live VW calls. Run `pnpm test:vw` and existing safe static checks, report protected-source diffs, then stop for review.
+
+Phase 1 added only offline tests, fixtures, scripts and documentation. No Phase 2 implementation is included.

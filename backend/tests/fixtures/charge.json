@@ -1,0 +1,22 @@
+{
+  "data": {
+    "carCapturedTimestamp": 1700000005000,
+    "batteryStatus": {
+      "currentSOCPct": 74,
+      "carCapturedTimestamp": 1700000004000
+    },
+    "chargingStatus": {
+      "currentChargeState": "chargingHVBattery",
+      "currentSOCPct": 73,
+      "chargePower": 7.2,
+      "remainingChargingTimeToComplete": 90
+    },
+    "plugStatus": {
+      "plugConnectionState": "connected",
+      "plugLockState": "locked"
+    },
+    "chargeSettings": {
+      "targetSOCPercentage": 80
+    }
+  }
+}

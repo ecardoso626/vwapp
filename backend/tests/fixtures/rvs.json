@@ -1,0 +1,32 @@
+{
+  "data": {
+    "timestamp": 1700000000000,
+    "currentMileage": 12345,
+    "powerStatus": {
+      "cruiseRange": 100,
+      "cruiseRangeUnits": "MI",
+      "odometer": 99999
+    },
+    "exteriorStatus": {
+      "secure": "SECURE",
+      "doorStatus": {
+        "frontLeft": "OPEN",
+        "frontRight": "CLOSED",
+        "carCapturedTimestamp": 1700000000
+      },
+      "doorLockStatus": {
+        "frontLeft": "UNLOCKED",
+        "carCapturedTimestamp": 1700000000
+      },
+      "windowStatus": {
+        "rearRight": "OPEN",
+        "carCapturedTimestamp": 1700000000
+      }
+    },
+    "lastParkedLocation": {
+      "latitude": 40.000001,
+      "longitude": -89.000001,
+      "timestamp": 1700000000000
+    }
+  }
+}

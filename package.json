@@ -9,6 +9,7 @@
     "publish:ios": "pnpm --filter @vwapp/mobile run publish:ios",
     "deploy": "pnpm --filter @vwapp/backend run deploy",
     "test": "tsc --noEmit -p scripts/tsconfig.json && eslint scripts && pnpm --recursive --parallel --aggregate-output run \"/^(typecheck|lint|format:check)$/\"",
+    "test:vw": "node --import ./backend/tests/register.mjs --test backend/tests/*.test.mjs",
     "typecheck": "tsc --noEmit -p scripts/tsconfig.json && pnpm --recursive --parallel run typecheck",
     "lint": "eslint scripts && pnpm --recursive --parallel run lint",
     "format": "pnpm --recursive --parallel --aggregate-output run format"

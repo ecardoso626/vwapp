@@ -1,0 +1,15 @@
+{
+  "data": {
+    "vehicles": [
+      {
+        "vin": "TESTVIN0000000000",
+        "vehicleId": "synthetic-vehicle-uuid",
+        "vehicleNickName": "Fixture Buzz",
+        "modelName": "Synthetic ID. Buzz"
+      },
+      {
+        "vehicleId": "missing-vin-must-be-skipped"
+      }
+    ]
+  }
+}
