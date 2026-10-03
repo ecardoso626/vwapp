@@ -1,4 +1,4 @@
-# VW protocol characterization — Phase 1.1
+# VW protocol characterization — Phases 1–2
 
 The offline suite captures behavior at the current `umbrel-selfhosted` source
 boundary. It is not evidence that Volkswagen still accepts these requests or
@@ -54,6 +54,18 @@ The underlying protocol and production orchestration files were not edited.
 | Wake/refresh         | GOOD     | Ordinary cron status read without wake; S-PIN-gated bodyless wake, accepted request followed by immediate cloud read, rejection/503/network fallback, 401 forced-login attempt and no request deadline. Delayed vehicle response is not modeled in source.                                                                    |
 | Command confirmation | GOOD     | Correlation, pre-read delay, accepted/success/explicit failure, malformed/pending/5xx/network/no confirmation, typed 401; router returns success and overwrites contrary observed lock state after eight unconfirmed reads.                                                                                                   |
 | Retry/error behavior | PARTIAL  | Refresh fallback, status forced re-mint, 401 wake forced-login attempt, history polling, three-attempt charge/climate busy paths, generic 429/5xx, network failure and pending fetch without AbortSignal. Other climate retry windows and full-login throttling remain untested.                                              |
+
+## Phase 2 adapter/domain coverage
+
+The original 54 VW characterization tests remain the protocol regression gate.
+Phase 2 adds 13 offline tests in `backend/tests/adapter.test.mjs` for discovery,
+status/battery/security/charging/odometer/location mapping, climate reads,
+missing and ambiguous fields, category timestamps, capability evidence, wake
+and command submissions, separate history confirmation, and protocol-error
+propagation. The new tests use the same fail-closed fetch harness and synthetic
+fixtures. They do not replace the router/poll characterization tests. The
+adapter is additive and is not yet a production Worker call path; see
+[DOMAIN_MODEL.md](DOMAIN_MODEL.md) for its scope and unknown-state rules.
 
 ## Current quirks preserved
 

@@ -1,6 +1,23 @@
 import { oc } from "@orpc/contract";
 import { z } from "zod";
 
+export type {
+  BatteryState,
+  ClimateState,
+  CommandConfirmation,
+  CommandSubmission,
+  Known,
+  Support,
+  VehicleCapabilities,
+  VehicleCommandKind,
+  VehicleFreshness,
+  VehicleIdentity,
+  VehicleLocation,
+  VehicleSecurityState,
+  VehicleState,
+  WakeSubmission,
+} from "./vehicle-domain.js";
+
 /** A vehicle in the user's garage. */
 export const vehicleSchema = z.object({
   vin: z.string(),

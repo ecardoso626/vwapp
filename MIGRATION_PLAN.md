@@ -4,7 +4,7 @@ Inspection date: 2026-10-02, America/Chicago. Repository: [ecardoso626/vwapp](ht
 
 **Scope: inspection, safe baseline checks and planning only.** No application source, dependencies, credentials, signing settings or deployment configuration were changed. No VW calls, vehicle commands, wake requests, hosted authentication mutations or deployments were performed. Proposed schemas, commands and phases below are future work, not implemented features or authorization to start them.
 
-**Phase 1.1 update:** 54 deterministic offline characterization tests now cover the main VW request and parsing paths plus charging, climate keepalive, wake and representative retries; see [VW protocol test coverage](docs/VW_PROTOCOL_TEST_COVERAGE.md). The Phase 0 baseline and its historical statements remain as recorded. Production VW behavior was not changed. [BuzzKey product identity](docs/PRODUCT_IDENTITY.md) now fixes the future native build identifiers, and [design direction](docs/design/DESIGN_DIRECTION.md) records the later UI goals.
+**Phase 2 update:** The 54 existing offline VW tests are joined by 13 adapter/domain tests. A typed, additive VW adapter and conservative vehicle model now exist without changing current Worker/Instant call paths or VW protocol behavior; see [the domain model](docs/DOMAIN_MODEL.md). Phase 1.1 covered the main VW request and parsing paths plus charging, climate keepalive, wake and representative retries; see [VW protocol test coverage](docs/VW_PROTOCOL_TEST_COVERAGE.md). The Phase 0 baseline and its historical statements remain as recorded. Production VW behavior was not changed. [BuzzKey product identity](docs/PRODUCT_IDENTITY.md) now fixes the future native build identifiers, and [design direction](docs/design/DESIGN_DIRECTION.md) records the later UI goals.
 
 Companion evidence: [current architecture](ARCHITECTURE_CURRENT.md), [security design and threat model](SECURITY_NOTES.md), [command/results ledger](PHASE0_COMMAND_LOG.md). Source paths in these documents are repository-relative. Source observations take precedence over stale README/CLAUDE comments; live interoperability remains unverified.
 
@@ -290,7 +290,7 @@ Use only full native TestFlight releases. Do not replace EAS with another cloud 
 
 ## 19. Proposed normalized domain
 
-Existing `StatusDTO` already provides useful normalization; evolve it instead of discarding it. It still exposes VW charge-state strings/friendly closure names, conflates absent closure lists with empty/closed lists and lacks explicit capability/freshness evidence.
+Existing `StatusDTO` already provides useful normalization; evolve it instead of discarding it. It still exposes VW charge-state strings/friendly closure names, conflates absent closure lists with empty/closed lists and lacks explicit capability/freshness evidence. Phase 2 introduced the smaller additive model in [DOMAIN_MODEL.md](docs/DOMAIN_MODEL.md); the broader shape below remains future design, not implemented code.
 
 Proposed conceptual shape, not code to compile:
 
@@ -477,14 +477,12 @@ Each phase is a separately reviewable change. Suggested checkpoint names below a
 - **Rollback:** revert test/config additions; production protocol unchanged.
 - **Exit:** meaningful offline coverage of authentication, S-PIN, reads, commands/history and current ambiguity; no live traffic.
 
-### Phase 2 — domain and repository interfaces
+### Phase 2 — domain and VW adapter boundary (implemented)
 
-- **Objective/files:** add domain/capability/freshness types in contract and adapter/repository seams around existing DTOs/store callers, keeping original API working.
-- **Prerequisites/tests:** Phase 1 coverage; normalization, unknown-field, ownership and adapter contract tests; unchanged protocol request fixtures.
-- **Risks:** treating unknown as closed/unsupported or changing units; explicit mappings and additive types first.
-- **Git checkpoint:** `phase2-domain-boundaries`.
-- **Rollback:** revert new adapter/contracts while old API remains supported.
-- **Exit:** UI-facing model separated from Instant/VW shapes without protocol behavior changes.
+- **Objective/files:** additive vehicle/capability/freshness types in `packages/contract/src/vehicle-domain.ts`, typed `backend/src/vw/adapter.ts`, offline adapter tests and [DOMAIN_MODEL.md](docs/DOMAIN_MODEL.md). No repository or runtime replacement seam was introduced.
+- **Validation:** the original 54 VW tests plus 13 adapter/domain tests; static checks and a Worker dry-run bundle. The original Worker/Instant paths remain in use.
+- **Preservation:** the adapter delegates protocol calls; current token retry, busy/confirmation budgets, climate keepalive, optimistic lock snapshot and persistence tails stay with existing callers. Unknown lock/closures/climate remain unknown in the new model even where the legacy DTO collapses evidence.
+- **Exit:** a usable typed boundary exists without changing production request behavior, mobile queries, persistence or deployment.
 
 ### Phase 3 — remove voice vertical slice
 
@@ -635,8 +633,8 @@ These do not block Phase 0 or synthetic characterization:
 - **Apple Review/Demo Mode:** Reviewers must be able to use deterministic simulated state and controls with reviewer username/password supplied through App Store Connect, without Tailscale, the owner's Umbrel host, real VW credentials or the owner's vehicle. Put this behind an explicit environment/data-source boundary so demo requests cannot reach the real VW adapter or command scheduler. No review mode was implemented in Phase 1.
 - **Analytics:** Future first-class Analytics includes trips, miles, mi/kWh, battery/range/charging/climate history, and effects of outside temperature, speed, trip length and cabin setpoint. Any personalized model must distinguish measured variables from unavailable ones and avoid causal claims from correlation. Phase 1 chose no persistence schema. The provisional coarse-sampling/retention suggestions in sections 21–22 must be revisited before schema design so trip segmentation and multivariable analysis remain possible where VW supplies sufficient telemetry.
 
-## 34. Exact recommended next agent task (updated after Phase 1.1)
+## 34. Exact recommended next agent task (updated after Phase 2)
 
-> Implement **Phase 2 only** in `/Users/cardosofam/vwapp`: introduce additive vehicle-domain and VW adapter interfaces around the existing production protocol, keeping the current Worker/Instant app functional and the source-backed request behavior unchanged. Use the Phase 1 offline suite as a regression gate; first extend synthetic tests for any remaining protocol/orchestration path that must be touched. Represent unknown capability/state and data freshness explicitly. Keep BuzzKey product identity, future Review/Demo Mode, and analytics telemetry needs visible without implementing UI redesign, persistence schema, authentication, deployment or live VW calls. Run `pnpm test:vw` and existing safe static checks, report protected-source diffs, then stop for review.
+> Implement **Phase 3 only** in `/Users/cardosofam/vwapp`: remove the voice/AI vertical slice from the Worker, shared contract, mobile app, scripts, AI binding and audio-only configuration/dependency, while retaining shared vehicle controls and the existing VW/Instant flows. Verify no assistant route or microphone permission remains. Run the offline VW and adapter suites, repository static checks and safe Worker bundle validation. Do not start the Node runtime or persistence migration, use live VW credentials, or deploy.
 
-Phases 1 and 1.1 added only offline tests, fixtures, scripts and documentation. No Phase 2 implementation is included.
+Phase 2 added only the typed vehicle domain, VW adapter, offline tests and documentation. The current application paths remain functional.
