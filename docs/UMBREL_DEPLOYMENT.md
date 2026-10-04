@@ -138,3 +138,40 @@ Gate 2 is the next mandatory stop: real VW credential provisioning and passive
 VW validation require separate approval. Real VW encryption/persistence, a
 container restart/recreate persistence test and a production backup check remain
 pending; the current checks do not claim those later milestones are complete.
+
+## Gate 2 local credential entry
+
+Gate 2 was explicitly approved on 2026-10-04. Before credential entry, a forced
+container recreate passed: the container ID changed, HTTPS health and the existing
+Mac client's signed request succeeded, migrations and device records persisted,
+the protected external key remained identical, and scheduler/Serve settings were
+unchanged. No VW account existed at this check.
+
+Run `scripts/provision-vw.py` directly in the Mac terminal with `--origin` set to
+the approved HTTPS origin and `--device-key` pointing to the dedicated paired Mac
+client's protected key file. Python hides username, password and S-PIN input and
+refuses noninteractive input or an echo fallback. Values are sent through child
+stdin to the local signing client, then through exact-body NIP-98 over verified
+HTTPS; they are never command-line arguments, environment variables or files.
+The helper prints only a sanitized success summary or failure category.
+
+The client checks public health and cached account state, refuses an already
+provisioned account, and submits at most one credentials request followed by one
+S-PIN connect request. The existing backend authenticates, immediately stores the
+successful reusable session/credentials in AES-256-GCM envelopes, then performs
+its existing initial passive status read. Existing backend token/session fallback
+behavior remains unchanged. The helper has no reconnect/retry loop and calls no
+vehicle control, wake or forced-refresh endpoint. A failure or client timeout
+requires sanitized server-state review before any further attempt; a client timeout
+does not prove that an already-running server request was cancelled.
+
+Nine deterministic offline helper tests cover signed payloads, fixed request scope,
+failed authentication/connect without retries, existing-account refusal, missing
+attempt/status failures, invalid input/origin, sanitized transport errors and
+noninteractive-input refusal. These do not claim live VW compatibility.
+
+For the later post-authentication recreate and log capture, the committed helper
+`scripts/umbrel-recreate.sh post-vw` (staged under `deployment/` on Umbrel) saves the
+old container logs before recreating, then records the new container and Serve
+configuration and startup logs. It verifies disabled scheduling before starting.
+Passwords for sudo are entered only into the operator's terminal.
