@@ -1,29 +1,34 @@
-import { db } from "@/db";
+import { requireBuzzKey } from "@/buzzkey-native";
+import { passiveKeys, usePassiveMessages } from "@/hooks/use-passive-data";
 import { htmlToText } from "@/html";
 import { useIosColors } from "@/ios-colors";
-import { orpc } from "@/rpc";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Stack, useLocalSearchParams } from "expo-router";
 import { useEffect } from "react";
 import { Text as RNText, ScrollView } from "react-native";
-import { Paragraph, YStack } from "tamagui";
+import { Paragraph, Spinner, Text, YStack } from "tamagui";
 
 /**
- * A single message-center message in full, read from InstantDB by messageId.
- * Marks the message read (our override) on open via the server; the list clears
- * its unread dot through the live query.
+ * A cached message from Node/SQLite; opening it updates our local read override.
  */
 export default function MessageDetail() {
   const ios = useIosColors();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const q = db.useQuery({ messages: { $: { where: { messageId: id } } } });
-  const message = q.data?.messages[0];
+  const q = usePassiveMessages();
+  const message = q.data?.messages.find((item) => item.messageId === id);
 
-  const setRead = useMutation(orpc.vehicle.setMessageRead.mutationOptions());
+  const queryClient = useQueryClient();
+  const setRead = useMutation({
+    mutationFn: (messageId: string) =>
+      requireBuzzKey().setMessageRead(messageId, true),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: passiveKeys.messages }),
+  });
   const { mutate: setReadMutate } = setRead;
   useEffect(() => {
-    if (id) setReadMutate({ messageId: id, read: true });
-  }, [id, setReadMutate]);
+    if (message !== undefined && !(message.readOverride ?? message.read))
+      setReadMutate(message.messageId);
+  }, [message, setReadMutate]);
 
   return (
     <>
@@ -39,9 +44,14 @@ export default function MessageDetail() {
         contentInsetAdjustmentBehavior="automatic"
         contentContainerStyle={{ padding: 16, gap: 8 }}
       >
-        {message === undefined ? (
+        {q.isLoading ? <Spinner color="$color" /> : null}
+        {q.error ? <Text color="$red10">{q.error.message}</Text> : null}
+        {setRead.error ? (
+          <Text color="$red10">{setRead.error.message}</Text>
+        ) : null}
+        {!q.isLoading && q.error === null && message === undefined ? (
           <Paragraph color="$color10">Message not found.</Paragraph>
-        ) : (
+        ) : message !== undefined ? (
           <YStack gap="$2">
             <RNText
               selectable
@@ -68,7 +78,7 @@ export default function MessageDetail() {
               </RNText>
             ) : null}
           </YStack>
-        )}
+        ) : null}
       </ScrollView>
     </>
   );

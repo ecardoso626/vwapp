@@ -6,11 +6,8 @@
  * the car does on its own (driver locks it, a door opens, charging starts).
  */
 import { doorLabel, strArr, windowLabel } from "@/closures";
-import type { InstaQLEntity } from "@instantdb/react-native";
-import type { AppSchema } from "@vwapp/db";
+import type { PassiveSnapshot } from "@/hooks/use-passive-data";
 import type { SymbolViewProps } from "expo-symbols";
-
-type Snapshot = InstaQLEntity<AppSchema, "snapshots">;
 
 export interface UpdateEvent {
   at: number;
@@ -23,7 +20,7 @@ export interface UpdateEvent {
  * Diffs each snapshot against its predecessor (any input order; sorted by
  * `createdAt` internally) and returns the transitions, oldest first.
  */
-export function snapshotUpdates(snapshots: Snapshot[]): UpdateEvent[] {
+export function snapshotUpdates(snapshots: PassiveSnapshot[]): UpdateEvent[] {
   const ordered = [...snapshots].sort((a, b) => a.createdAt - b.createdAt);
   const events: UpdateEvent[] = [];
   for (let i = 1; i < ordered.length; i++) {
@@ -34,7 +31,11 @@ export function snapshotUpdates(snapshots: Snapshot[]): UpdateEvent[] {
   return events;
 }
 
-function diffPair(prev: Snapshot, next: Snapshot, out: UpdateEvent[]): void {
+function diffPair(
+  prev: PassiveSnapshot,
+  next: PassiveSnapshot,
+  out: UpdateEvent[],
+): void {
   // capturedAt is the car's own report time; createdAt (our poll time) only
   // backstops old rows that predate it.
   const at = next.capturedAt ?? next.createdAt;
@@ -56,7 +57,7 @@ function diffPair(prev: Snapshot, next: Snapshot, out: UpdateEvent[]): void {
     );
   }
 
-  if (prev.openDoors !== undefined && next.openDoors !== undefined) {
+  if (prev.openDoors !== null && next.openDoors !== null) {
     for (const d of added(prev.openDoors, next.openDoors)) {
       out.push({
         at,
@@ -75,7 +76,7 @@ function diffPair(prev: Snapshot, next: Snapshot, out: UpdateEvent[]): void {
     }
   }
 
-  if (prev.openWindows !== undefined && next.openWindows !== undefined) {
+  if (prev.openWindows !== null && next.openWindows !== null) {
     for (const w of added(prev.openWindows, next.openWindows)) {
       out.push({
         at,
@@ -111,7 +112,7 @@ function diffPair(prev: Snapshot, next: Snapshot, out: UpdateEvent[]): void {
     );
   }
 
-  if (prev.chargeState != null && next.chargeState != null) {
+  if (prev.chargeState !== "unknown" && next.chargeState !== "unknown") {
     const was = isChargingState(prev.chargeState);
     const now = isChargingState(next.chargeState);
     if (!was && now) {
@@ -153,6 +154,6 @@ function windowName(w: string): string {
  *  Active charging only: VW's idle, target-reached states can END in "Charging"
  *  (e.g. "chargePurposeReachedAndNotConservationCharging"), so a substring match
  *  wrongly flags them — the actively-charging states START with "charging". */
-function isChargingState(state: string): boolean {
-  return state.toLowerCase().startsWith("charging");
+function isChargingState(state: PassiveSnapshot["chargeState"]): boolean {
+  return state === "charging";
 }

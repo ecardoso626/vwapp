@@ -3,7 +3,10 @@ import {
   getStoredAuthToken,
   setStoredAuthToken,
 } from "@/auth-storage";
+import { BuzzKeyApiError } from "@/buzzkey-client";
 import { db } from "@/db";
+import { DeviceIdentityRecoveryError } from "@/device-identity";
+import { usePassiveOwner } from "@/hooks/use-passive-data";
 import { orpc } from "@/rpc";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -16,15 +19,15 @@ import {
 } from "react";
 
 interface Session {
-  /** Resolving the initial auth state (guest identity + auth.me). */
+  /** Resolving the NIP-98 authorized-device owner state. */
   isLoading: boolean;
+  paired: boolean;
+  accountLinked: boolean;
+  vehicleAvailable: boolean;
+  /** Transitional Worker account status for legacy controls. */
   loggedIn: boolean;
-  /**
-   * The initial auth state could not be resolved (Instant unreachable, guest
-   * sign-in failed, or our server unreachable/rejecting). The saved local
-   * identity is NOT touched — recovery is `retry` or, explicitly,
-   * `discardLocalAuth`.
-   */
+  legacyError: string | null;
+  /** The Node owner state could not be resolved; the device key stays intact. */
   initError: string | null;
   retry: () => void;
   /** A retry kicked off from the error state is in flight. */
@@ -55,14 +58,13 @@ function errorMessage(err: unknown): string {
 }
 
 /**
- * App-wide auth session. Two layers:
- *  1. Instant guest auth — the device's durable identity, created on first
- *     launch. Lets the app live-query its own data and authenticates RPCs.
- *  2. The Worker's auth.me — whether this client is attached to a VW session.
+ * App-wide transitional session. The NIP-98 owner read gates passive screens.
+ * Instant guest identity and Worker auth.me continue only for legacy controls.
  */
 export function SessionProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
   const auth = db.useAuth();
+  const owner = usePassiveOwner();
 
   // Guest sign-in, retried via the `attempt` nonce. The in-flight ref guards
   // against double sign-ins (two guests for one device). We first try to restore
@@ -122,26 +124,24 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }),
   );
 
-  // Initial resolution failed only when we have nothing to show: a guest
-  // sign-in / Instant auth failure, or auth.me erroring with no cached
-  // answer. A failed *background* refetch (me.isError with data) keeps the
-  // last known state instead.
-  const meError =
-    !discarded && me.isError && me.data === undefined
-      ? errorMessage(me.error)
+  // The Worker identity initializes in the background for transitional
+  // controls. It never gates Node passive reads or device pairing.
+  const rejected =
+    owner.error instanceof DeviceIdentityRecoveryError ||
+    (owner.error instanceof BuzzKeyApiError &&
+      owner.error.code === "authorization_rejected");
+  const initError =
+    owner.data === undefined && !rejected
+      ? (owner.error?.message ?? null)
       : null;
-  const initError = guestError ?? auth.error?.message ?? meError;
-
   const isLoading =
-    initError === null &&
-    (auth.isLoading ||
-      auth.user == null ||
-      (!discarded && me.data === undefined && !me.isError));
+    owner.data === undefined && owner.isPending && initError === null;
 
   const retry = () => {
     setGuestError(null);
     setAttempt((n) => n + 1); // re-attempt guest sign-in if that step failed
     if (me.isError) void me.refetch();
+    void owner.refetch();
   };
 
   const discardLocalAuth = () => {
@@ -162,10 +162,17 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     <SessionContext.Provider
       value={{
         isLoading,
-        loggedIn: me.data?.loggedIn === true,
+        paired: owner.data !== undefined,
+        accountLinked: owner.data?.accountLinked === true,
+        vehicleAvailable: owner.data?.vehicleAvailable === true,
+        loggedIn: !discarded && me.data?.loggedIn === true,
+        legacyError:
+          guestError ??
+          auth.error?.message ??
+          (me.isError ? errorMessage(me.error) : null),
         initError,
         retry,
-        retrying: me.isError && me.isFetching,
+        retrying: owner.isFetching,
         signOut: () => {
           logout.mutate(undefined);
         },

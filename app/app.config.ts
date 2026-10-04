@@ -17,16 +17,20 @@ export default ({ config }: ConfigContext): ExpoConfig => {
   // src/env.d.ts so dot access satisfies both TS and Expo's lint rule.
   const projectId = process.env.EAS_PROJECT_ID;
   const owner = process.env.EXPO_OWNER ?? config.owner;
-  const bundleIdentifier =
-    process.env.IOS_BUNDLE_IDENTIFIER ?? config.ios?.bundleIdentifier;
+  const bundleIdentifier = "com.ecardoso626.buzzkey";
+  if (
+    process.env.IOS_BUNDLE_IDENTIFIER !== undefined &&
+    process.env.IOS_BUNDLE_IDENTIFIER !== bundleIdentifier
+  )
+    throw new Error("IOS_BUNDLE_IDENTIFIER must be com.ecardoso626.buzzkey");
   return {
     ...config,
-    name: config.name ?? "vwapp",
+    name: "BuzzKey",
     slug: config.slug ?? "vwapp",
     ...(owner !== undefined ? { owner } : {}),
     ios: {
       ...config.ios,
-      ...(bundleIdentifier !== undefined ? { bundleIdentifier } : {}),
+      bundleIdentifier,
     },
     ...(projectId !== undefined
       ? {

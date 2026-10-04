@@ -17,6 +17,15 @@ export type {
   VehicleState,
   WakeSubmission,
 } from "./vehicle-domain.js";
+export type {
+  PassiveCurrent,
+  PassiveHistory,
+  PassiveMessage,
+  PassiveMessages,
+  PassiveOwner,
+  PassiveVehicle,
+  PassiveVehicles,
+} from "./passive.js";
 
 /** A vehicle in the user's garage. */
 export const vehicleSchema = z.object({
@@ -121,9 +130,9 @@ export type ClimateStartInput = z.infer<typeof climateStartSchema>;
 /**
  * End-to-end typed API contract, shared by the Worker and the Expo app.
  *
- * Vehicle and snapshot *data* is not served here — the app live-queries it
- * from InstantDB directly. These procedures only cover what requires the
- * Worker: VW credentials and on-demand VW fetches.
+ * This legacy oRPC contract serves the Worker control path and Node RPC.
+ * Phase 7 passive mobile data uses the separate Node /api/v1 contract in
+ * passive.ts. The Worker and its InstantDB paths remain transitional.
  */
 export const contract = {
   auth: {

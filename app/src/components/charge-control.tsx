@@ -1,3 +1,4 @@
+import type { PassiveSnapshot } from "@/hooks/use-passive-data";
 import { useTransientError } from "@/hooks/use-transient-error";
 import { useThemeToggle } from "@/providers/theme-provider";
 import { orpc } from "@/rpc";
@@ -10,9 +11,7 @@ import {
   tag,
   tint,
 } from "@expo/ui/swift-ui/modifiers";
-import type { InstaQLEntity } from "@instantdb/react-native";
 import { useMutation } from "@tanstack/react-query";
-import type { AppSchema } from "@vwapp/db";
 import {
   AnimatePresence,
   H2,
@@ -26,8 +25,6 @@ import {
 import { IosButton, IosCard } from "./ios-list";
 import { SfIcon } from "./sf-icon";
 
-type Snapshot = InstaQLEntity<AppSchema, "snapshots">;
-
 const LIMITS = [50, 60, 70, 80, 90, 100];
 
 /**
@@ -38,7 +35,13 @@ const LIMITS = [50, 60, 70, 80, 90, 100];
  * deliberate selection commits one RPC, so VW's rate-limited EV channel sees
  * no more traffic than the old stepper's explicit Save did.
  */
-export function ChargeControl({ s, uuid }: { s: Snapshot; uuid: string }) {
+export function ChargeControl({
+  s,
+  uuid,
+}: {
+  s: PassiveSnapshot;
+  uuid: string;
+}) {
   // The native picker/gauge need a resolved scheme to follow the in-app theme.
   const { pref } = useThemeToggle();
   const theme = useTheme();
@@ -183,17 +186,12 @@ export function ChargeControl({ s, uuid }: { s: Snapshot; uuid: string }) {
   );
 }
 
-function isCharging(s: Snapshot): boolean {
-  if (s.chargeState == null) return false;
-  // Active charging only. VW's idle, target-reached states can END in "Charging"
-  // (e.g. "chargePurposeReachedAndNotConservationCharging"), so matching the
-  // substring flips an idle car to "Charging" between polls — the actively
-  // charging states START with "charging".
-  return s.chargeState.toLowerCase().startsWith("charging");
+function isCharging(s: PassiveSnapshot): boolean {
+  return s.chargeState === "charging";
 }
 
-function stateLabel(s: Snapshot): string {
-  if (s.chargeState == null) return "—";
+function stateLabel(s: PassiveSnapshot): string {
+  if (s.chargeState === "unknown") return "Charging status unknown";
   if (!isCharging(s))
     return s.pluggedIn === true ? "Plugged in, idle" : "Not charging";
   const power =
@@ -214,7 +212,7 @@ function fmtEta(minutes: number): string {
   return `${String(Math.round((minutes / 60) * 10) / 10)}h`;
 }
 
-function plugLabel(s: Snapshot): string {
+function plugLabel(s: PassiveSnapshot): string {
   if (s.pluggedIn == null) return "Plug status unknown";
   if (!s.pluggedIn) return "Unplugged";
   return s.plugLocked === true ? "Connected · locked" : "Connected";

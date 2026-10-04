@@ -1,10 +1,12 @@
-# Node runtime (Phases 4–6B)
+# Node runtime (Phases 4–7)
 
 The long-lived Node HTTP process sits beside the existing Cloudflare Worker.
-The mobile app still reads InstantDB and calls the Worker. Phase 6B moves only
-Node application persistence to SQLite; the Worker entry and its InstantDB
-store remain in place. Both runtimes reuse the existing oRPC router, VW protocol
-client, status poll and climate keepalive. See [Node SQLite cutover](NODE_SQLITE_CUTOVER.md).
+Phase 7 moves mobile passive reads to Node/SQLite; live controls, login/logout,
+and climate-session subscription still use the Worker/InstantDB. The Worker
+entry and its InstantDB store remain in place. Both runtimes reuse the existing
+oRPC router, VW protocol client, status poll and climate keepalive. See
+[Node SQLite cutover](NODE_SQLITE_CUTOVER.md) and
+[mobile Node cutover](MOBILE_NODE_CUTOVER.md).
 
 Phase 6A connects the offline-tested owner-device authentication module under
 `backend/auth/` to the Node entrypoint. Every Node `/rpc` request now requires
@@ -82,9 +84,9 @@ bind an ephemeral loopback port and inject synthetic SQLite identity and
 jobs; they do not contact InstantDB or Volkswagen.
 
 The Node entrypoint uses SQLite for authentication and application persistence.
-The mobile app still calls the Worker and reads InstantDB. Docker packaging,
-live service credentials, reverse-proxy validation, mobile signed transport,
-and deployment remain future work. Keep Node bound to loopback until the
+The mobile app still calls the Worker for live controls and uses InstantDB for
+that transitional path. Docker packaging, live service credentials,
+reverse-proxy validation, and deployment remain future work. Keep Node bound to loopback until the
 private HTTPS and host access policy is reviewed and tested.
 The esbuild tool is build-time only and has supported Linux ARM64 binaries in
 the lockfile; the bundled runtime uses Node standard APIs and the existing

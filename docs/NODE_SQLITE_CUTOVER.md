@@ -1,6 +1,6 @@
 # Phase 6B: Node SQLite application persistence
 
-The Node HTTP runtime now uses SQLite for owner/account, Volkswagen session, vehicle, snapshot, climate-session, and message state. The Cloudflare Worker still uses `backend/src/store.ts` and InstantDB; the mobile app still uses InstantDB and the Worker. No live data import, scheduler cutover, deployment, or Volkswagen call was made in this phase.
+The Node HTTP runtime now uses SQLite for owner/account, Volkswagen session, vehicle, snapshot, climate-session, and message state. The Cloudflare Worker still uses `backend/src/store.ts` and InstantDB. Phase 7 moved mobile passive reads to Node; its live controls still use InstantDB and the Worker. No live data import, scheduler cutover, deployment, or Volkswagen call was made.
 
 ## Migration boundary
 
@@ -27,4 +27,4 @@ The Node scheduler remains **off by default** while the Worker cron may run. Whe
 
 No production InstantDB rows were read or imported. Synthetic parity tests cover account linkage, encrypted secrets and token replacement, stable vehicles, raw and normalized snapshots, deduplication/forced writes, climate restart, message overrides, and mocked polling. `legacy_snapshots` retains the old 30-day batched prune behavior; normalized observations currently have no retention policy. A later, separately reviewed import must choose ID mapping, backup/key handling, and a single writer before live data moves.
 
-The phone still reads InstantDB and calls the Worker. A future mobile data cutover needs signed transport and local Keychain identity, cached SQLite-backed read APIs, offline/stale UI behavior, and an explicit one-scheduler cutover plan. Phase 6B does not perform that work.
+Phase 7 supplies signed mobile passive reads and the local Keychain identity; see [mobile Node cutover](MOBILE_NODE_CUTOVER.md). The phone still calls the Worker for live controls and uses InstantDB for that transitional path. A later control cutover needs durable command handling and an explicit one-scheduler plan.

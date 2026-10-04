@@ -3,18 +3,17 @@ import { ChargeControl } from "@/components/charge-control";
 import { ClimateControl } from "@/components/climate-control";
 import { IosButton, IosCard, IosGroup, IosRow } from "@/components/ios-list";
 import { LockControl } from "@/components/lock-control";
-import { db } from "@/db";
 import { agoLabel, useNow } from "@/hooks/use-now";
+import {
+  useFirstPassiveVehicle,
+  type PassiveSnapshot,
+} from "@/hooks/use-passive-data";
 import { useTransientError } from "@/hooks/use-transient-error";
 import { useIosColors } from "@/ios-colors";
 import { useSession } from "@/providers/session-provider";
-import { orpc } from "@/rpc";
 import { formatMiles } from "@/units";
-import type { InstaQLEntity } from "@instantdb/react-native";
-import { useMutation } from "@tanstack/react-query";
-import type { AppSchema } from "@vwapp/db";
 import { Stack, useRouter } from "expo-router";
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { RefreshControl, ScrollView } from "react-native";
 import {
   AnimatePresence,
@@ -25,84 +24,39 @@ import {
   YStack,
 } from "tamagui";
 
-type Snapshot = InstaQLEntity<AppSchema, "snapshots">;
-
 export default function Dashboard() {
   const theme = useTheme();
   const ios = useIosColors();
   const router = useRouter();
-  const { signOut, signOutError } = useSession();
+  const { signOut, signOutError, accountLinked, loggedIn, legacyError } =
+    useSession();
 
-  // Live queries: the Worker (pull-to-refresh or its cron) writes snapshots
-  // to InstantDB and they stream in here — no polling, no invalidation.
-  const vehiclesQuery = db.useQuery({ vehicles: {} });
-  const vehicle = vehiclesQuery.data?.vehicles[0];
-  const snapshotQuery = db.useQuery(
-    vehicle === undefined
-      ? null
-      : {
-          snapshots: {
-            $: {
-              where: { "vehicle.id": vehicle.id },
-              order: { createdAt: "desc" },
-              limit: 1,
-            },
-          },
-        },
-  );
-  const snapshot = snapshotQuery.data?.snapshots[0];
-
-  // Asks the Worker to fetch from VW right now; the result arrives through
-  // the snapshot subscription above.
-  const refresh = useMutation(orpc.vehicle.refresh.mutationOptions());
-
-  // A skipped (null) query reports isLoading forever — only consult it once
-  // there's a vehicle and the query actually runs.
-  const isLoading =
-    vehiclesQuery.isLoading ||
-    (vehicle !== undefined && snapshotQuery.isLoading);
+  const { vehiclesQuery, vehicle, snapshot } = useFirstPassiveVehicle();
+  const isLoading = vehiclesQuery.isLoading;
   // A failed server logout must be visible too — otherwise tapping "Sign out"
   // with the server down silently does nothing. The refresh (mutation) error
   // is transient — query errors clear themselves on recovery, but a mutation
   // error would sit there until the next refresh.
-  const refreshError = useTransientError(refresh.error);
-  const errorMessage =
-    (vehiclesQuery.error ?? snapshotQuery.error ?? refreshError)?.message ??
-    signOutError;
+  const refreshError = useTransientError(vehiclesQuery.error);
+  const errorMessage = refreshError?.message ?? signOutError;
 
-  // First run after login (or after a data wipe) has a vehicle but no stored
-  // status yet; kick off one fetch from VW rather than waiting for the cron.
   const noSnapshotYet =
     vehicle !== undefined &&
-    !snapshotQuery.isLoading &&
-    snapshotQuery.error === undefined &&
+    !vehiclesQuery.isLoading &&
+    vehiclesQuery.error === null &&
     snapshot === undefined;
-  const autoRefreshed = useRef(false);
-  const { mutate: refreshMutate } = refresh;
-  useEffect(() => {
-    if (noSnapshotYet && !autoRefreshed.current) {
-      autoRefreshed.current = true;
-      refreshMutate({});
-    }
-  }, [noSnapshotYet, refreshMutate]);
 
   // Native RefreshControl and the header toolbar need a resolved color
   // string, not a Tamagui token.
   const tintColor = theme.color.val;
 
-  // The pull spinner tracks only gesture-initiated refreshes; tying it to
-  // refresh.isPending made it pop in when the menu triggered a refresh.
+  // Pull-to-refresh reads the Node cache; it never wakes the vehicle.
   const [pulling, setPulling] = useState(false);
   const onPullRefresh = () => {
     setPulling(true);
-    refresh.mutate(
-      {},
-      {
-        onSettled: () => {
-          setPulling(false);
-        },
-      },
-    );
+    void vehiclesQuery.refetch().finally(() => {
+      setPulling(false);
+    });
   };
 
   // The ScrollView must be the screen's first child (no wrapper view) with
@@ -123,7 +77,7 @@ export default function Dashboard() {
           <Stack.Toolbar.MenuAction
             icon="arrow.clockwise"
             onPress={() => {
-              refresh.mutate({});
+              void vehiclesQuery.refetch();
             }}
           >
             Refresh
@@ -137,12 +91,22 @@ export default function Dashboard() {
             Settings
           </Stack.Toolbar.MenuAction>
           <Stack.Toolbar.MenuAction
-            icon="rectangle.portrait.and.arrow.right"
-            destructive
-            onPress={signOut}
+            icon="person.crop.circle"
+            onPress={() => {
+              router.push("/login");
+            }}
           >
-            Sign out
+            Legacy control sign-in
           </Stack.Toolbar.MenuAction>
+          {loggedIn ? (
+            <Stack.Toolbar.MenuAction
+              icon="rectangle.portrait.and.arrow.right"
+              destructive
+              onPress={signOut}
+            >
+              Sign out of legacy controls
+            </Stack.Toolbar.MenuAction>
+          ) : null}
         </Stack.Toolbar.Menu>
       </Stack.Toolbar>
       <ScrollView
@@ -164,6 +128,16 @@ export default function Dashboard() {
           />
         }
       >
+        {!accountLinked ? (
+          <Paragraph color="$color10">
+            This device is paired, but no VW account is linked in the Node
+            backend yet. Passive vehicle data will appear after the owner links
+            that account.
+          </Paragraph>
+        ) : null}
+        {legacyError !== null ? (
+          <Text color="$red10">Legacy controls: {legacyError}</Text>
+        ) : null}
         {vehicle !== undefined ? (
           <Text selectable style={{ color: ios.secondaryLabel, fontSize: 13 }}>
             {vehicle.vin}
@@ -193,14 +167,16 @@ export default function Dashboard() {
           ) : null}
         </AnimatePresence>
         {!vehiclesQuery.isLoading &&
-        vehiclesQuery.error === undefined &&
+        vehiclesQuery.error === null &&
         vehicle === undefined ? (
           <Paragraph
             color="$color10"
             transition="quick"
             enterStyle={{ opacity: 0 }}
           >
-            No vehicles found in your VW account.
+            {accountLinked
+              ? "No vehicles found in the linked VW account."
+              : "No Node vehicle is available yet."}
           </Paragraph>
         ) : null}
         <AnimatePresence>
@@ -216,21 +192,15 @@ export default function Dashboard() {
               exitStyle={{ opacity: 0, y: -10 }}
             >
               <Paragraph color="$color10">
-                {refresh.isPending
-                  ? "Getting the latest status from your car…"
-                  : "No status stored yet."}
+                No status stored on the BuzzKey server yet.
               </Paragraph>
-              {refresh.isPending ? (
-                <Spinner color="$color" />
-              ) : (
-                <IosButton
-                  tone="blue"
-                  label="Get status"
-                  onPress={() => {
-                    refresh.mutate({});
-                  }}
-                />
-              )}
+              <IosButton
+                tone="blue"
+                label="Check server"
+                onPress={() => {
+                  void vehiclesQuery.refetch();
+                }}
+              />
             </IosCard>
           ) : null}
         </AnimatePresence>
@@ -238,7 +208,7 @@ export default function Dashboard() {
           <StatusCards
             s={snapshot}
             uuid={vehicle.uuid}
-            vehicleId={vehicle.id}
+            controlsEnabled={loggedIn}
           />
         ) : null}
       </ScrollView>
@@ -249,11 +219,11 @@ export default function Dashboard() {
 function StatusCards({
   s,
   uuid,
-  vehicleId,
+  controlsEnabled,
 }: {
-  s: Snapshot;
+  s: PassiveSnapshot;
   uuid: string;
-  vehicleId: string;
+  controlsEnabled: boolean;
 }) {
   // Snapshots only re-render this on arrival; tick so "Xm ago" stays honest.
   const now = useNow();
@@ -270,9 +240,31 @@ function StatusCards({
       animateOnly={["opacity", "transform"]}
       enterStyle={{ opacity: 0, y: 20 }}
     >
-      <ChargeControl s={s} uuid={uuid} />
-      <LockControl uuid={uuid} locked={s.locked ?? null} />
-      <ClimateControl vehicleId={vehicleId} uuid={uuid} />
+      {now - s.fetchedAt > 5 * 60_000 ? (
+        <Paragraph color="$yellow10">
+          Cached vehicle status may be stale.
+        </Paragraph>
+      ) : null}
+      {controlsEnabled ? (
+        <>
+          <ChargeControl s={s} uuid={uuid} />
+          <LockControl uuid={uuid} locked={s.locked ?? null} />
+          <ClimateControl uuid={uuid} />
+        </>
+      ) : (
+        <IosCard p="$4" gap="$2">
+          <Paragraph color="$color10">
+            Vehicle controls still use the legacy Worker account.
+          </Paragraph>
+          <IosButton
+            tone="blue"
+            label="Sign in for controls"
+            onPress={() => {
+              router.push("/login");
+            }}
+          />
+        </IosCard>
+      )}
       <IosGroup>
         <IosRow label="Odometer" value={formatMiles(s.odometerKm)} />
         <IosRow
@@ -324,10 +316,12 @@ function StatusCards({
  * One-line "is the car sealed?" summary. Surfaces open doors/windows (or, as a
  * fallback, individually unlocked doors) as a warning; otherwise reassures.
  */
-function securitySummary(s: Snapshot): { text: string; warn: boolean } {
+function securitySummary(s: PassiveSnapshot): { text: string; warn: boolean } {
   const open = openSummary(strArr(s.openDoors), strArr(s.openWindows));
   if (open !== null) return { text: open, warn: true };
   const unlocked = unlockedSummary(strArr(s.unlockedDoors));
   if (unlocked !== null) return { text: unlocked, warn: true };
+  if (s.openDoors === null || s.openWindows === null)
+    return { text: "Status unknown", warn: false };
   return { text: "All closed", warn: false };
 }

@@ -40,22 +40,26 @@ export function climateStartKey(uuid: string): string[] {
  * pending/error state is mirrored here (see `climateStartKey`) so dismissing the
  * sheet mid-submit doesn't hide that a command is still running.
  */
-export function ClimateControl({
-  vehicleId,
-  uuid,
-}: {
-  vehicleId: string;
-  uuid: string;
-}) {
+export function ClimateControl({ uuid }: { uuid: string }) {
   const router = useRouter();
   // Ticks so the end-time label flips to "turning off soon" on time — the
   // cron + 1-min polling can otherwise leave "until 2:55" on screen at 2:56.
   const now = useNow(15_000);
-  const sessionQuery = db.useQuery({
-    climateSessions: {
-      $: { where: { "vehicle.id": vehicleId, state: "active" } },
-    },
-  });
+  // This managed-command session still belongs to the legacy Worker/InstantDB
+  // control path. Its vehicle row ID may differ from the Node vehicle ID.
+  const legacyVehicles = db.useQuery({ vehicles: {} });
+  const legacyId = legacyVehicles.data?.vehicles.find(
+    (item) => item.uuid === uuid,
+  )?.id;
+  const sessionQuery = db.useQuery(
+    legacyId === undefined
+      ? null
+      : {
+          climateSessions: {
+            $: { where: { "vehicle.id": legacyId, state: "active" } },
+          },
+        },
+  );
   const session = sessionQuery.data?.climateSessions[0];
   const active = session !== undefined;
 
@@ -81,7 +85,7 @@ export function ClimateControl({
   const openStart = () => {
     router.push({
       pathname: "/climate",
-      params: { uuid, vehicleId, mode: "start" },
+      params: { uuid, vehicleId: legacyId, mode: "start" },
     });
   };
   const openAdjust = () => {
@@ -90,7 +94,7 @@ export function ClimateControl({
       pathname: "/climate",
       params: {
         uuid,
-        vehicleId,
+        vehicleId: legacyId,
         mode: "adjust",
         tempF: String(session.tempF),
         endMs: String(session.expiresAt),

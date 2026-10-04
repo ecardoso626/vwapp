@@ -4,6 +4,7 @@ import { pollAllVehicles, runClimateKeepalive } from "../src/poll";
 import type { SqliteStorage } from "../storage/database";
 import { SecretRepository } from "../storage/secrets";
 import type { NodeConfig } from "./config";
+import { NodePassiveApi } from "./passive";
 import type { NodeServices } from "./runtime";
 import { NodeSqliteStore } from "./sqlite-store";
 
@@ -23,6 +24,7 @@ export function createNodeServices(
       config.publicOrigin,
     ),
     db,
+    passive: new NodePassiveApi(storage, db),
     poll: () => pollAllVehicles(db, config.env),
     climate: () => runClimateKeepalive(db, config.env),
   };

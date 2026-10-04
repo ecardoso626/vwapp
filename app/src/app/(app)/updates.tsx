@@ -1,6 +1,6 @@
 import { IosButton, IosGroup, IosRow } from "@/components/ios-list";
-import { db } from "@/db";
 import { agoLabel, useNow } from "@/hooks/use-now";
+import { useFirstPassiveVehicle } from "@/hooks/use-passive-data";
 import { useIosColors } from "@/ios-colors";
 import { orpc } from "@/rpc";
 import { useMutation } from "@tanstack/react-query";
@@ -15,36 +15,11 @@ import { Paragraph, Spinner, Text } from "tamagui";
 export default function UpdatesScreen() {
   const now = useNow();
   const ios = useIosColors();
-  // Same live-query pair as the dashboard: the refreshed status lands here
-  // through the snapshot subscription, not the RPC result.
-  const vehiclesQuery = db.useQuery({ vehicles: {} });
-  const vehicle = vehiclesQuery.data?.vehicles[0];
-  const snapshotQuery = db.useQuery(
-    vehicle === undefined
-      ? null
-      : {
-          snapshots: {
-            $: {
-              where: { "vehicle.id": vehicle.id },
-              order: { createdAt: "desc" },
-              limit: 1,
-            },
-          },
-        },
-  );
-  const snapshot = snapshotQuery.data?.snapshots[0];
-  // A skipped (null) query reports isLoading forever — only consult it once
-  // there's a vehicle and the query actually runs.
-  const isLoading =
-    vehiclesQuery.isLoading ||
-    (vehicle !== undefined && snapshotQuery.isLoading);
+  const { vehiclesQuery, snapshot } = useFirstPassiveVehicle();
+  const isLoading = vehiclesQuery.isLoading;
 
   const refresh = useMutation(orpc.vehicle.refresh.mutationOptions());
-  const errorMessage = (
-    vehiclesQuery.error ??
-    snapshotQuery.error ??
-    refresh.error
-  )?.message;
+  const errorMessage = (vehiclesQuery.error ?? refresh.error)?.message;
 
   return (
     <>
@@ -58,9 +33,10 @@ export default function UpdatesScreen() {
         <Paragraph
           style={{ color: ios.secondaryLabel, fontSize: 15, lineHeight: 20 }}
         >
-          “Updated” is when your car last checked in with VW — automatic, about
-          once a minute. Refreshing also wakes the car, so fresh numbers may
-          keep arriving for a few minutes.
+          These times distinguish the car’s reported updates from when the
+          BuzzKey server received them. “Refresh now” uses the legacy Worker
+          wake path; passive screens otherwise read the server cache. The Worker
+          refresh does not update the separate Node cache immediately.
         </Paragraph>
 
         <IosButton
@@ -69,7 +45,14 @@ export default function UpdatesScreen() {
           icon="arrow.clockwise"
           disabled={refresh.isPending}
           onPress={() => {
-            refresh.mutate({});
+            refresh.mutate(
+              {},
+              {
+                onSuccess: () => {
+                  void vehiclesQuery.refetch();
+                },
+              },
+            );
           }}
           label={refresh.isPending ? "Refreshing…" : "Refresh now"}
         />

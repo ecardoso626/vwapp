@@ -11,12 +11,25 @@ const READ_PATHS = new Set([
   "/rpc/vehicle/refreshMessages",
   "/rpc/vehicle/parkedMapUrl",
 ]);
+const PASSIVE_READ_PATHS = new Set([
+  "/api/v1/owner",
+  "/api/v1/vehicles",
+  "/api/v1/messages",
+]);
 
 export type EndpointClass = "public" | "pairing" | "read" | "control";
 
 export function classifyEndpoint(method: string, path: string): EndpointClass {
   if (method === "GET" && path === "/health") return "public";
   if (method === "POST" && path === "/auth/pair") return "pairing";
+  if (
+    method === "GET" &&
+    (PASSIVE_READ_PATHS.has(path) ||
+      /^\/api\/v1\/vehicles\/[0-9a-f-]{36}\/(current|history)$/.test(path))
+  )
+    return "read";
+  if (method === "PATCH" && /^\/api\/v1\/messages\/[^/]+$/.test(path))
+    return "read";
   return READ_PATHS.has(path) ? "read" : "control";
 }
 

@@ -4,6 +4,8 @@ This is historical Phase 0 evidence. Phase 3 removed the voice/AI source, bindin
 
 **Phase 6B update:** Node now maps NIP-98 authorized devices to one SQLite owner without an Instant guest token. Its reusable VW username, password, S-PIN, access/refresh/ID/carnet tokens and PKCE verifier are persisted as Phase 5 AES-256-GCM envelopes with externally supplied key material. Worker/mobile InstantDB paths remain unchanged. The Node scheduler defaults off, and no live data import, VW request or deployment was performed. See [Node SQLite cutover](docs/NODE_SQLITE_CUTOVER.md). The Phase 0 findings below describe the original Worker trust boundary.
 
+**Phase 7 update:** An app-specific secp256k1 key is stored in iOS Keychain with Expo SecureStore `WHEN_UNLOCKED_THIS_DEVICE_ONLY`, not AsyncStorage. Mobile requests sign the configured external HTTPS URL, method, nonce, timestamp and raw JSON-body hash; Node checks replay, authorization and revocation before SQLite passive reads. Key loss/revocation requires a confirmed pairing-screen reset and a new token; transient errors never erase the key. Native Keychain/Hermes and Face ID behavior remain unverified. Worker/Instant guest authentication and live commands remain transitional. See [mobile Node cutover](docs/MOBILE_NODE_CUTOVER.md).
+
 Phase 0, 2026-10-02. Baseline: `ecardoso626/vwapp`, `umbrel-selfhosted`, `15500a78ff6a33310e443c91a9b6c3e62554b2cc`. This is a source review and design, not a penetration test or proof of current VW interoperability. No real credentials were requested, read, stored or used.
 
 ## Current trust boundaries and findings

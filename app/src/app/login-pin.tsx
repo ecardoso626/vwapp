@@ -3,7 +3,7 @@ import { useFocusOnScreen } from "@/hooks/use-focus-on-screen";
 import { useLoginFlow } from "@/providers/login-flow";
 import { orpc } from "@/rpc";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Redirect } from "expo-router";
+import { Redirect, useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { H1, Input, Paragraph, Text, YStack } from "tamagui";
@@ -17,6 +17,7 @@ import { H1, Input, Paragraph, Text, YStack } from "tamagui";
  */
 export default function LoginPin() {
   const queryClient = useQueryClient();
+  const router = useRouter();
   const { credentials, clear } = useLoginFlow();
   const [spin, setSpin] = useState("");
   const pinRef = useFocusOnScreen();
@@ -29,8 +30,8 @@ export default function LoginPin() {
   const login = useMutation(
     orpc.auth.login.mutationOptions({
       onSuccess: async () => {
-        // Flipping auth.me to logged-in makes the layout guard swap to the app.
         await queryClient.invalidateQueries();
+        router.replace("/");
       },
     }),
   );

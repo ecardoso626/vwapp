@@ -21,7 +21,7 @@ void SplashScreen.preventAutoHideAsync();
 const queryClient = new QueryClient();
 
 function RootNavigator() {
-  const { isLoading, loggedIn, initError, retry, retrying, discardLocalAuth } =
+  const { isLoading, paired, initError, retry, retrying, discardLocalAuth } =
     useSession();
   // Headers are hidden by default here, but screens that opt back in
   // (+not-found) must still follow the in-app theme.
@@ -54,8 +54,7 @@ function RootNavigator() {
   // unreliable, and on slow connections after the splash gives way.
   if (isLoading) return <BootLoading />;
 
-  // Initial auth state unknown (server/Instant unreachable): keep the saved
-  // token, offer retry — never silently fall through to the login screen.
+  // A rejected signed identity opens pairing; network faults remain errors.
   if (initError !== null)
     return (
       <BootError
@@ -82,12 +81,8 @@ function RootNavigator() {
           headerBackButtonDisplayMode: "minimal",
         }}
       >
-        <Stack.Protected guard={loggedIn}>
+        <Stack.Protected guard={paired}>
           <Stack.Screen name="(app)" />
-        </Stack.Protected>
-        <Stack.Protected guard={!loggedIn}>
-          {/* `login` declared first so it's the group's initial route; the
-              S-PIN screen is pushed on top after credentials validate. */}
           <Stack.Screen name="login" />
           <Stack.Screen
             name="login-pin"
@@ -97,6 +92,9 @@ function RootNavigator() {
               headerTitle: "",
             }}
           />
+        </Stack.Protected>
+        <Stack.Protected guard={!paired}>
+          <Stack.Screen name="pair" />
         </Stack.Protected>
       </Stack>
     </NavThemeProvider>

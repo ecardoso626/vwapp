@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "VW App",
+    "name": "BuzzKey",
     "slug": "vwapp",
     "version": "1.0.24",
     "runtimeVersion": {
@@ -11,6 +11,7 @@
     "scheme": "vwapp",
     "userInterfaceStyle": "automatic",
     "ios": {
+      "bundleIdentifier": "com.ecardoso626.buzzkey",
       "icon": "./assets/images/icon.png",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false

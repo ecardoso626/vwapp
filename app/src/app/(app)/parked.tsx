@@ -1,7 +1,7 @@
 import { IosGroup, IosRow } from "@/components/ios-list";
 import { SfIcon } from "@/components/sf-icon";
-import { db } from "@/db";
 import { agoLabel, useNow } from "@/hooks/use-now";
+import { useFirstPassiveVehicle } from "@/hooks/use-passive-data";
 import { useIosColors } from "@/ios-colors";
 import { useThemeToggle } from "@/providers/theme-provider";
 import { orpc } from "@/rpc";
@@ -30,29 +30,9 @@ const MAP_HEIGHT = 200;
 export default function ParkedScreen() {
   const now = useNow();
   const ios = useIosColors();
-  // Same live-query pair as the dashboard.
-  const vehiclesQuery = db.useQuery({ vehicles: {} });
-  const vehicle = vehiclesQuery.data?.vehicles[0];
-  const snapshotQuery = db.useQuery(
-    vehicle === undefined
-      ? null
-      : {
-          snapshots: {
-            $: {
-              where: { "vehicle.id": vehicle.id },
-              order: { createdAt: "desc" },
-              limit: 1,
-            },
-          },
-        },
-  );
-  const snapshot = snapshotQuery.data?.snapshots[0];
-  // A skipped (null) query reports isLoading forever — only consult it once
-  // there's a vehicle and the query actually runs.
-  const isLoading =
-    vehiclesQuery.isLoading ||
-    (vehicle !== undefined && snapshotQuery.isLoading);
-  const errorMessage = (vehiclesQuery.error ?? snapshotQuery.error)?.message;
+  const { vehiclesQuery, snapshot } = useFirstPassiveVehicle();
+  const isLoading = vehiclesQuery.isLoading;
+  const errorMessage = vehiclesQuery.error?.message;
 
   const parked =
     snapshot?.parkedLat != null && snapshot.parkedLng != null

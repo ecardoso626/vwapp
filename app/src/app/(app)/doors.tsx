@@ -8,8 +8,8 @@ import {
 import { IosGroup, IosRow, IosSectionHeader } from "@/components/ios-list";
 import { SfIcon } from "@/components/sf-icon";
 import { VehicleVisual } from "@/components/vehicle-visual";
-import { db } from "@/db";
 import { agoLabel, useNow } from "@/hooks/use-now";
+import { useFirstPassiveVehicle } from "@/hooks/use-passive-data";
 import { useIosColors } from "@/ios-colors";
 import { Stack } from "expo-router";
 import { ScrollView } from "react-native";
@@ -18,30 +18,9 @@ import { Paragraph, Spinner, Text, View, XStack, YStack } from "tamagui";
 /** Per-closure door/window status with the vehicle drawn live from the snapshot. */
 export default function DoorsScreen() {
   const now = useNow();
-  // Same live-query pair as the dashboard: snapshots stream in from the
-  // Worker, so an opened door shows up here within a cron tick.
-  const vehiclesQuery = db.useQuery({ vehicles: {} });
-  const vehicle = vehiclesQuery.data?.vehicles[0];
-  const snapshotQuery = db.useQuery(
-    vehicle === undefined
-      ? null
-      : {
-          snapshots: {
-            $: {
-              where: { "vehicle.id": vehicle.id },
-              order: { createdAt: "desc" },
-              limit: 1,
-            },
-          },
-        },
-  );
-  const snapshot = snapshotQuery.data?.snapshots[0];
-  // A skipped (null) query reports isLoading forever — only consult it once
-  // there's a vehicle and the query actually runs.
-  const isLoading =
-    vehiclesQuery.isLoading ||
-    (vehicle !== undefined && snapshotQuery.isLoading);
-  const errorMessage = (vehiclesQuery.error ?? snapshotQuery.error)?.message;
+  const { vehiclesQuery, snapshot } = useFirstPassiveVehicle();
+  const isLoading = vehiclesQuery.isLoading;
+  const errorMessage = vehiclesQuery.error?.message;
 
   const openDoors = strArr(snapshot?.openDoors);
   const openWindows = strArr(snapshot?.openWindows);
@@ -107,11 +86,13 @@ export default function DoorsScreen() {
                     key={name}
                     label={doorLabel(name)}
                     status={
-                      openDoors.includes(name)
-                        ? "open"
-                        : unlockedDoors.some((u) => u.startsWith(name))
-                          ? "unlocked"
-                          : "closed"
+                      snapshot.openDoors === null
+                        ? "unknown"
+                        : openDoors.includes(name)
+                          ? "open"
+                          : unlockedDoors.some((u) => u.startsWith(name))
+                            ? "unlocked"
+                            : "closed"
                     }
                   />
                 ))}
@@ -124,7 +105,13 @@ export default function DoorsScreen() {
                   <StatusRow
                     key={name}
                     label={windowLabel(name)}
-                    status={openWindows.includes(name) ? "open" : "closed"}
+                    status={
+                      snapshot.openWindows === null
+                        ? "unknown"
+                        : openWindows.includes(name)
+                          ? "open"
+                          : "closed"
+                    }
                   />
                 ))}
               </IosGroup>
@@ -144,13 +131,14 @@ function StatusRow({
   status,
 }: {
   label: string;
-  status: "open" | "unlocked" | "closed";
+  status: "open" | "unlocked" | "closed" | "unknown";
 }) {
   const c = useIosColors();
   const style = {
     open: { text: "Open", color: c.red },
     unlocked: { text: "Unlocked", color: c.warn },
     closed: { text: "Closed", color: undefined },
+    unknown: { text: "Unknown", color: undefined },
   }[status];
   return <IosRow label={label} value={style.text} valueColor={style.color} />;
 }

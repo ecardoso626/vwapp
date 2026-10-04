@@ -1,7 +1,7 @@
 /**
- * InstantDB client. The app signs in as an Instant guest (its durable
- * identity) and live-queries vehicles/snapshots; permissions restrict it to
- * its own rows. All writes happen in the Worker.
+ * Transitional InstantDB client for Worker-backed controls, VW login/logout,
+ * and the managed-climate session subscription. Passive owner/vehicle/history/
+ * message views now use the NIP-98 Node client instead.
  */
 import "@/polyfills";
 import { init } from "@instantdb/react-native";

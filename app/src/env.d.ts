@@ -9,6 +9,7 @@ declare global {
     interface ProcessEnv {
       EXPO_PUBLIC_API_URL?: string;
       EXPO_PUBLIC_INSTANT_APP_ID?: string;
+      EXPO_PUBLIC_NODE_ORIGIN?: string;
       // Read in app.config.ts only (not bundled into the client).
       EXPO_OWNER?: string;
       EAS_PROJECT_ID?: string;

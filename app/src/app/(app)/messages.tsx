@@ -1,15 +1,15 @@
+import { requireBuzzKey } from "@/buzzkey-native";
 import { SfIcon } from "@/components/sf-icon";
-import { db } from "@/db";
+import { passiveKeys, usePassiveMessages } from "@/hooks/use-passive-data";
 import { previewText } from "@/html";
 import { useIosColors } from "@/ios-colors";
-import { orpc } from "@/rpc";
-import type { InstaQLEntity } from "@instantdb/react-native";
-import { useMutation } from "@tanstack/react-query";
-import type { AppSchema } from "@vwapp/db";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import type { PassiveMessage } from "@vwapp/contract";
 import { Stack, useRouter } from "expo-router";
-import { Fragment, useEffect, useRef, useState } from "react";
+import { Fragment, useRef, useState } from "react";
 import {
   ActionSheetIOS,
+  Alert,
   Platform,
   Pressable,
   RefreshControl,
@@ -32,7 +32,7 @@ const TEXT_GAP = 12; // avatar → text column
 // Separator (and text) leading edge = past the avatar.
 const ROW_INSET = DOT_GUTTER + AVATAR + TEXT_GAP;
 
-type Message = InstaQLEntity<AppSchema, "messages">;
+type Message = PassiveMessage;
 
 /** Effective read state: our override wins over VW's mirrored flag. */
 function isRead(m: Message): boolean {
@@ -40,46 +40,25 @@ function isRead(m: Message): boolean {
 }
 
 /**
- * myVW message-center inbox. The app reads messages from InstantDB (the Worker
- * mirrors them from VW); pulling to refresh asks the Worker to re-sync. The app
- * never talks to VW directly.
+ * Cached VW messages from the Node/SQLite API. Refresh checks the server cache.
  */
 export default function MessagesScreen() {
   // Native RefreshControl needs a resolved color string, not a Tamagui token.
   const theme = useTheme();
   const c = useIosColors();
-  const q = db.useQuery({
-    messages: { $: { order: { createdAt: "desc" } } },
-  });
+  const q = usePassiveMessages();
   // Soft-deleted messages stay in the DB (so they survive VW re-syncs) but are
   // hidden here — filtered client-side rather than in the query so an absent
   // attribute can't accidentally exclude a row.
   const messages = (q.data?.messages ?? []).filter((m) => m.deletedAt == null);
 
-  // Re-sync from VW on open + pull-to-refresh; new/updated/deleted messages then
-  // arrive through the live query above.
-  const refresh = useMutation(orpc.vehicle.refreshMessages.mutationOptions());
-  const { mutate: refreshMutate } = refresh;
-  useEffect(() => {
-    refreshMutate({});
-  }, [refreshMutate]);
-
-  // The pull spinner must track ONLY gesture-initiated refreshes. Binding it to
-  // refresh.isPending makes the RefreshControl programmatically "refreshing" on
-  // mount (we auto-sync above), and iOS then holds the content offset down by
-  // the spinner's height (~60pt) until the VW round-trip finishes — reading as
-  // a big gap under the large title. (Same fix as the dashboard.)
+  // Pulling reads cached data only; it does not contact VW.
   const [pulling, setPulling] = useState(false);
   const onPullRefresh = () => {
     setPulling(true);
-    refresh.mutate(
-      {},
-      {
-        onSettled: () => {
-          setPulling(false);
-        },
-      },
-    );
+    void q.refetch().finally(() => {
+      setPulling(false);
+    });
   };
 
   return (
@@ -110,14 +89,14 @@ export default function MessagesScreen() {
             <Spinner color="$color" />
           </View>
         ) : null}
-        {refresh.error ? (
+        {q.error ? (
           <View style={{ padding: 16 }}>
             <Text selectable color="$red10">
-              {refresh.error.message}
+              {q.error.message}
             </Text>
           </View>
         ) : null}
-        {!q.isLoading && messages.length === 0 ? (
+        {!q.isLoading && q.error === null && messages.length === 0 ? (
           <View style={{ padding: 16 }}>
             <Paragraph color="$color10">No messages.</Paragraph>
           </View>
@@ -156,23 +135,37 @@ const ACTION_W = 80;
 function MailRow({ m }: { m: Message }) {
   const c = useIosColors();
   const router = useRouter();
-  const setRead = useMutation(orpc.vehicle.setMessageRead.mutationOptions());
-  const setDeleted = useMutation(
-    orpc.vehicle.setMessageDeleted.mutationOptions(),
-  );
+  const queryClient = useQueryClient();
+  const setRead = useMutation({
+    mutationFn: (read: boolean) =>
+      requireBuzzKey().setMessageRead(m.messageId, read),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: passiveKeys.messages }),
+    onError: (error: Error) => {
+      Alert.alert("Could not update message", error.message);
+    },
+  });
+  const setDeleted = useMutation({
+    mutationFn: () => requireBuzzKey().setMessageDeleted(m.messageId, true),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: passiveKeys.messages }),
+    onError: (error: Error) => {
+      Alert.alert("Could not delete message", error.message);
+    },
+  });
   const swipeRef = useRef<SwipeableMethods>(null);
   const unread = !isRead(m);
   const preview =
     m.body != null && m.body !== "" ? previewText(m.body) : undefined;
 
   const toggleRead = () => {
-    setRead.mutate({ messageId: m.messageId, read: unread });
+    setRead.mutate(unread);
     swipeRef.current?.close();
   };
   const remove = () => {
     swipeRef.current?.close();
     // The row vanishes via the live query (deletedAt set) — no local state.
-    setDeleted.mutate({ messageId: m.messageId, deleted: true });
+    setDeleted.mutate();
   };
 
   // Long-press mirrors the swipe actions for discoverability, and is the only

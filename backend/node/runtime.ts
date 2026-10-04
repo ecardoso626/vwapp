@@ -7,6 +7,7 @@ import type { DeviceAuthService } from "../auth/service";
 import type { Db } from "../src/application-store";
 import { router } from "../src/router";
 import type { NodeConfig } from "./config";
+import type { NodePassiveApi } from "./passive";
 import {
   createNodeScheduler,
   type SchedulerClock,
@@ -17,6 +18,7 @@ import { OWNER_ID } from "./sqlite-store";
 export interface NodeServices extends SchedulerJobs {
   auth: DeviceAuthService;
   db: Db;
+  passive?: NodePassiveApi;
 }
 
 export function createNodeRuntime(
@@ -69,6 +71,21 @@ export function createNodeRuntime(
     if (decision.kind !== "authorized") {
       response.writeHead(404);
       response.end("Not found");
+      return;
+    }
+
+    if (request.url?.startsWith("/api/v1/")) {
+      const result = await services.passive?.handle(
+        request.method ?? "GET",
+        request.url,
+        decision.body,
+        decision.device,
+      );
+      response.writeHead(result?.status ?? 404, {
+        "content-type": "application/json",
+        "cache-control": "private, no-store",
+      });
+      response.end(JSON.stringify(result?.body ?? { error: "not_found" }));
       return;
     }
 
