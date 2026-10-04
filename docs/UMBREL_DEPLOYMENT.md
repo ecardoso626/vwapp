@@ -34,7 +34,12 @@ BUZZKEY_MASTER_KEY_ID=primary
 Replace `COMMITTED_REVISION` with the exact commit used for the locally built ARM64
 image. Build the main and auth-admin bundles with pinned pnpm, then the production
 Dockerfile. Transfer the image with `docker save`/`docker load` and compare SHA-256
-checksums. The production Compose file does not build or pull images implicitly.
+checksums. Docker image stores can report different kinds of image ID: the development
+containerd store reports the OCI manifest digest, while a classic Docker store may
+report the configuration digest referenced by that manifest. For a load-time ID
+check, derive the expected configuration digest from the verified archive; do not
+assume the development machine's `.Id` is portable. Record both digests in deployment
+provenance. The production Compose file does not build or pull images implicitly.
 
 ## Operator start
 
