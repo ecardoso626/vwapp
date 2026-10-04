@@ -3,8 +3,8 @@
 This is the approved first-deployment configuration, with the scheduler disabled.
 Use `compose.production.yaml` explicitly; the older `compose.yaml` enables scheduled
 VW polling and is not appropriate for this milestone. No VW credentials or requests
-are permitted before the separate Gate 2 approval. This file records the deployment
-procedure, not evidence that deployment has succeeded.
+are permitted before the separate Gate 2 approval. The verification record below distinguishes completed checks from the remaining
+live-account milestone.
 
 ## Approved host layout
 
@@ -96,3 +96,45 @@ credentials. A restart/recreate must retain application and authorized-device st
 Use the SQLite backup API (or stop the service before copying); keep the master
 key separately protected and preserve its key ID. Never restore over the live
 production database as part of this deployment check.
+
+## Gate 1 verification — 2026-10-04
+
+The approved image built from commit `a4885656568eb0210ab34748ea8e62420d8a2ba6`
+is running on Umbrel. Host Docker is 28.5.0, Compose is 5.5.1, architecture is
+ARM64. The image archive SHA-256 matched after transfer. The initial deployment
+stopped safely at an image-ID check because the two Docker image stores expose
+different digests; the corrected check accepts the verified manifest or config
+digest. No application or VW protocol change was needed.
+
+Verified remotely and from the authorized Mac tailnet client:
+
+- Container healthy, UID/GID 1000:1000, restart policy `unless-stopped`, zero
+  restarts at inspection, 90-second stop timeout, no privileged mode or Docker
+  socket, only loopback port 8788 published.
+- Private HTTPS health returns 200 with successful TLS verification. Tailscale
+  configuration comparison confirms all preexisting routes, including the public
+  port 443 Funnel route, are unchanged; BuzzKey port 8443 has no Funnel permission.
+- Seven SQLite migrations applied; integrity check returns `ok`. Data resides on
+  the approved persistent mount. Directories are 0700 and config/key files 0600,
+  owned by 1000:1000. The 32-byte master key is external and mounted read-only.
+- Thirteen real-environment readiness checks passed: health, anonymous and
+  unpaired-client rejection, dedicated-client pairing, pairing-token reuse
+  rejection, signed API success, replay rejection, incorrect origin despite
+  forwarded headers, URL/method/body tampering, expired signature, and a fresh
+  signed request after the rejection checks. These use only pairing, health and
+  SQLite-only passive endpoints.
+- One dedicated Mac validation client and replay records persisted after opening
+  SQLite separately. The private client key stays on the Mac with mode 0600 in a
+  private directory; it was not sent to the backend. The consumed pairing token
+  file was removed. Native iPhone validation remains pending.
+- Startup log inspection found the expected scheduler-disabled message and no
+  master-key exposure. Post-authentication container logs have not been separately
+  collected. Twenty-five existing offline auth tests also passed.
+- Scheduler remains disabled. Account, account-secret, vehicle, command and
+  climate-session tables remain empty. No Volkswagen requests or vehicle controls
+  were issued.
+
+Gate 2 is the next mandatory stop: real VW credential provisioning and passive
+VW validation require separate approval. Real VW encryption/persistence, a
+container restart/recreate persistence test and a production backup check remain
+pending; the current checks do not claim those later milestones are complete.
