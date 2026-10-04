@@ -20,6 +20,6 @@ The removed Worker tests characterized an older optimistic router, not the suppo
 
 ## Linux ARM64 image check
 
-The separate Docker `smoke` target tests the production bundle in Linux ARM64 with Docker networking disabled and synthetic data. It covers Node startup, `node:sqlite`, seven migrations, external `/data` SQLite creation, AES envelope round-trip, signed API, replay/revocation, public health, scheduler overlap/recovery/stop, SIGTERM and fail-closed missing configuration. It is not shipped in the production image. This proves local container behavior, not real VW/iPhone/Tailscale/Umbrel interoperability.
+The separate `Dockerfile.smoke` image tests the production bundle in Linux ARM64 with Docker networking disabled and synthetic data. It covers Node startup, `node:sqlite`, seven migrations, external `/data` SQLite creation, AES envelope round-trip, signed API, replay/revocation, public health, scheduler overlap/recovery/stop, SIGTERM and fail-closed missing configuration. It is not shipped in the production image. This proves local container behavior, not real VW/iPhone/Tailscale/Umbrel interoperability.
 
 For historical Phase 1–2 scope and limits, see the Git history before the Node cutover. Representative protocol limitations remain: HTTP 429/5xx are often generic errors, some confirmation polling is bounded but inconclusive, and no offline fixture can prove that VW still accepts this reverse-engineered protocol today.

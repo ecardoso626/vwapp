@@ -16,7 +16,7 @@ The supported path is native BuzzKey app → exact-body NIP-98 over an external 
 
 ## Build and Compose layout
 
-Use the repository's pinned `pnpm@10.33.4` and lockfile to build the two production bundles. The Dockerfile pins `node:22.23.3-bookworm-slim` to the locally validated ARM64 image digest; its default `production` stage copies only the bundles and runs as the image's non-root `node` user. The separate `smoke` target contains a synthetic test bundle and is not part of production. The `.dockerignore` sends only these bundles to the daemon; no source secrets, `.env`, fixtures or dependency tree enter the image. Keep package-manager and dependency installation outside the runtime image:
+Use the repository's pinned `pnpm@10.33.4` and lockfile to build the two production bundles. The Dockerfile pins `node:22.23.3-bookworm-slim` to the locally validated ARM64 image digest; its default `production` stage copies only the bundles and runs as the image's non-root `node` user. The separate `Dockerfile.smoke` builds a synthetic test image from the production image; the production Dockerfile never requires that test bundle. The `.dockerignore` sends only these bundles to the daemon; no source secrets, `.env`, fixtures or dependency tree enter the image. Keep package-manager and dependency installation outside the runtime image:
 
 ```bash
 pnpm install --frozen-lockfile
@@ -35,12 +35,12 @@ SQLite WAL files live beside `/data/buzzkey.sqlite`; keep the entire `/data` dir
 
 ## Linux ARM64 validation
 
-The local Docker daemon reported Linux `aarch64`; the validation explicitly built and ran `--platform linux/arm64` with `--network none`. Node v22.23.3 loaded built-in `node:sqlite`, created the external-volume database, applied seven migrations, encrypted and decrypted a synthetic secret, served public health and a signed protected API, rejected replay and revocation, ran scheduler lifecycle/failure checks, stopped cleanly on SIGTERM, and failed closed on missing origin. The production image and separate smoke target both built. The smoke command uses a disposable Docker volume and synthetic key; no VW endpoint was contacted. Production Umbrel/Tailscale/iPhone/VW interoperability remains unverified.
+The local Docker daemon reported Linux `aarch64`; the validation explicitly built and ran `--platform linux/arm64` with `--network none`. Node v22.23.3 loaded built-in `node:sqlite`, created the external-volume database, applied seven migrations, encrypted and decrypted a synthetic secret, served public health and a signed protected API, rejected replay and revocation, ran scheduler lifecycle/failure checks, stopped cleanly on SIGTERM, and failed closed on missing origin. The production image and separate smoke image both built. The smoke command uses a disposable Docker volume and synthetic key; no VW endpoint was contacted. Production Umbrel/Tailscale/iPhone/VW interoperability remains unverified.
 
 To repeat the synthetic test after building the two production bundles, build the test bundle with `pnpm --filter @vwapp/backend container:smoke:build`, then run:
 
 ```bash
-docker build --pull=false --network=none --platform linux/arm64 --target smoke -t buzzkey-backend:arm64-smoke .
+docker build --pull=false --network=none --platform linux/arm64 --file Dockerfile.smoke -t buzzkey-backend:arm64-smoke .
 docker run --pull never --rm --network none --platform linux/arm64 --tmpfs /data:uid=1000,gid=1000 buzzkey-backend:arm64-smoke
 ```
 

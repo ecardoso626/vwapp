@@ -13,9 +13,5 @@ USER node
 EXPOSE 8788
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:8788/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
-FROM base AS smoke
-COPY --chown=node:node dist/node/container-smoke.mjs /app/container-smoke.mjs
-CMD ["node", "/app/container-smoke.mjs"]
-
 FROM base AS production
 CMD ["node", "/app/main.mjs"]

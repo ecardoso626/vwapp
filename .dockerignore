@@ -1,4 +1,4 @@
-# This image consumes only the pinned-pnpm production bundle.
+# Only bundled artifacts enter either the production or smoke build context.
 *
 !dist/
 !dist/node/

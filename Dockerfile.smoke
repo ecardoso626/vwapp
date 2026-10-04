@@ -1,0 +1,4 @@
+# Synthetic Linux ARM64 validation image; never used by Compose.
+FROM buzzkey-backend:local
+COPY --chown=node:node dist/node/container-smoke.mjs /app/container-smoke.mjs
+CMD ["node", "/app/container-smoke.mjs"]
