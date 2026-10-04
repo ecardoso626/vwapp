@@ -10,3 +10,11 @@ globalThis.fetch = async (url) => {
 // extensionless local imports. This small resolver lets tests import the exact
 // production modules without bundling or editing them.
 register("./resolve-ts.mjs", import.meta.url);
+
+// The Worker entrypoint normally installs the InstantDB adapter. Protocol
+// characterization tests import the router directly, so install it here.
+const [instant, { registerInstantAdapter }] = await Promise.all([
+  import("../src/store.ts"),
+  import("../src/application-store.ts"),
+]);
+registerInstantAdapter(instant);

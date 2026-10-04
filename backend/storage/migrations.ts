@@ -142,4 +142,59 @@ CREATE TABLE auth_replay_events (
 CREATE INDEX auth_replay_events_by_expiry ON auth_replay_events(expires_at);
 `,
   },
+  {
+    version: 3,
+    name: "node_application_persistence",
+    sql: `
+CREATE TABLE vw_account_sessions (
+  account_id TEXT PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
+  user_key TEXT NOT NULL UNIQUE,
+  token_expires_at INTEGER NOT NULL
+) STRICT;
+
+CREATE TABLE owner_account_link (
+  owner_id TEXT PRIMARY KEY CHECK(owner_id = 'owner'),
+  account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE
+) STRICT;
+
+CREATE TABLE legacy_snapshots (
+  id INTEGER PRIMARY KEY,
+  vehicle_id TEXT NOT NULL REFERENCES vehicles(id) ON DELETE CASCADE,
+  created_at INTEGER NOT NULL,
+  payload TEXT NOT NULL CHECK(json_valid(payload))
+) STRICT;
+CREATE INDEX legacy_snapshots_by_vehicle ON legacy_snapshots(vehicle_id, created_at DESC, id DESC);
+CREATE INDEX legacy_snapshots_by_age ON legacy_snapshots(created_at);
+
+CREATE TABLE climate_sessions (
+  id TEXT PRIMARY KEY,
+  vehicle_id TEXT NOT NULL REFERENCES vehicles(id) ON DELETE CASCADE,
+  temp_f REAL NOT NULL,
+  expires_at INTEGER NOT NULL,
+  started_at INTEGER NOT NULL,
+  state TEXT NOT NULL,
+  last_start_at INTEGER,
+  remaining_min INTEGER,
+  paused_at INTEGER,
+  error TEXT
+) STRICT;
+CREATE INDEX climate_sessions_by_vehicle_state ON climate_sessions(vehicle_id, state);
+CREATE UNIQUE INDEX climate_one_active_per_vehicle ON climate_sessions(vehicle_id) WHERE state = 'active';
+
+CREATE TABLE messages (
+  id TEXT PRIMARY KEY,
+  account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  message_id TEXT NOT NULL,
+  title TEXT NOT NULL,
+  body TEXT,
+  at INTEGER,
+  read INTEGER NOT NULL CHECK(read IN (0, 1)),
+  read_override INTEGER CHECK(read_override IN (0, 1)),
+  deleted_at INTEGER,
+  created_at INTEGER NOT NULL,
+  UNIQUE(account_id, message_id)
+) STRICT;
+CREATE INDEX messages_by_account_time ON messages(account_id, at DESC);
+`,
+  },
 ];

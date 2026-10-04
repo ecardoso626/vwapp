@@ -11,9 +11,12 @@ import {
   pubkeyA,
   signedRequest,
 } from "../../auth/tests/helper.mjs";
+import { seal } from "../../src/crypto.ts";
 import { SqliteStorage } from "../../storage/database.ts";
+import { SecretRepository } from "../../storage/secrets.ts";
 import { loadNodeConfig } from "../config.ts";
 import { createNodeRuntime } from "../runtime.ts";
+import { NodeSqliteStore } from "../sqlite-store.ts";
 
 const target = "/rpc/vehicle/parkedMapUrl";
 const rpcBody = Buffer.from(
@@ -26,9 +29,8 @@ const env = {
   NODE_PORT: "0",
   NODE_PUBLIC_ORIGIN: origin,
   BUZZKEY_SQLITE_PATH: ":memory:",
-  INSTANT_APP_ID: "synthetic-instant-app",
-  INSTANT_ADMIN_TOKEN: "synthetic-admin-token",
-  CREDS_ENC_KEY: Buffer.alloc(32, 7).toString("base64"),
+  BUZZKEY_MASTER_KEY_ID: "synthetic-key",
+  BUZZKEY_MASTER_KEY_B64: Buffer.alloc(32, 7).toString("base64"),
 };
 
 function send(
@@ -79,18 +81,15 @@ async function setup(t, pair = true) {
         nowMs,
       )
     : null;
-  let verifications = 0;
+  const key = Buffer.alloc(32, 7);
+  const db = new NodeSqliteStore(
+    storage,
+    new SecretRepository(storage, "synthetic-key", key),
+    key.toString("base64"),
+  );
   const runtime = createNodeRuntime(loadNodeConfig(env, "test"), {
     auth: new DeviceAuthService(devices, origin, () => nowMs),
-    db: {
-      auth: {
-        async verifyToken(token) {
-          verifications++;
-          if (token !== "synthetic-guest-token") throw new Error("invalid");
-          return { id: "synthetic-user" };
-        },
-      },
-    },
+    db,
     poll: () => Promise.resolve(),
     climate: () => Promise.resolve(),
   });
@@ -99,15 +98,54 @@ async function setup(t, pair = true) {
     await runtime.stop();
     storage.close();
   });
-  return {
-    port,
-    devices,
-    paired,
-    get verifications() {
-      return verifications;
-    },
-  };
+  return { port, devices, paired, db };
 }
+
+test("Node starts without InstantDB configuration and resolves the owner account from SQLite", async (t) => {
+  assert.equal("INSTANT_APP_ID" in env, false);
+  assert.equal("INSTANT_ADMIN_TOKEN" in env, false);
+  const server = await setup(t);
+  const target = "/rpc/auth/me";
+  const call = async () => {
+    const authorization = signedRequest({ method: "POST", target }).request
+      .authorization;
+    return send(server.port, target, { method: "POST", authorization });
+  };
+  const before = await call();
+  assert.equal(before.status, 200, before.body);
+  assert.deepEqual(JSON.parse(before.body), { json: { loggedIn: false } });
+  const sealed = await seal(
+    env.BUZZKEY_MASTER_KEY_B64,
+    JSON.stringify({
+      username: "synthetic@example.invalid",
+      password: "synthetic-password",
+      spin: "1234",
+    }),
+  );
+  await server.db.saveLogin(
+    "owner",
+    "synthetic-user-key",
+    sealed,
+    {
+      accessToken: "synthetic-access",
+      refreshToken: "synthetic-refresh",
+      idToken: null,
+      codeVerifier: "synthetic-verifier",
+      expiresAt: 1_900_000_000_000,
+    },
+    [
+      {
+        vin: "TESTVIN0000000000",
+        uuid: "synthetic-vw-reference",
+        nickname: null,
+        model: "ID. Buzz",
+      },
+    ],
+  );
+  const after = await call();
+  assert.equal(after.status, 200, after.body);
+  assert.deepEqual(JSON.parse(after.body), { json: { loggedIn: true } });
+});
 
 test("health is public while anonymous and guest-token-only RPC are rejected", async (t) => {
   const server = await setup(t);
@@ -126,7 +164,6 @@ test("health is public while anonymous and guest-token-only RPC are rejected", a
     ).status,
     401,
   );
-  assert.equal(server.verifications, 0);
 });
 
 test("signed authorized-device RPC succeeds, then the same event is rejected", async (t) => {
@@ -140,16 +177,14 @@ test("signed authorized-device RPC succeeds, then the same event is rejected", a
     method: "POST",
     body: rpcBody,
     authorization,
-    guestToken: "synthetic-guest-token",
   };
   const accepted = await send(server.port, target, input);
   assert.equal(accepted.status, 200, accepted.body);
   assert.deepEqual(JSON.parse(accepted.body), { json: { url: null } });
   assert.equal((await send(server.port, target, input)).status, 401);
-  assert.equal(server.verifications, 1);
 });
 
-test("revoked device cannot reach RPC or InstantDB token verification", async (t) => {
+test("revoked device cannot reach RPC", async (t) => {
   const server = await setup(t);
   assert.ok(server.paired);
   assert.equal(server.devices.revoke(server.paired.id, nowMs), true);
@@ -161,26 +196,22 @@ test("revoked device cannot reach RPC or InstantDB token verification", async (t
         method: "POST",
         body: rpcBody,
         authorization,
-        guestToken: "synthetic-guest-token",
       })
     ).status,
     401,
   );
-  assert.equal(server.verifications, 0);
 });
 
 test("URL, method, and raw body tampering fail before application logic", async (t) => {
   const server = await setup(t);
   const authorization = signedRequest({ method: "POST", target, body: rpcBody })
     .request.authorization;
-  const guestToken = "synthetic-guest-token";
   assert.equal(
     (
       await send(server.port, target + "?x=1", {
         method: "POST",
         body: rpcBody,
         authorization,
-        guestToken,
       })
     ).status,
     401,
@@ -190,7 +221,6 @@ test("URL, method, and raw body tampering fail before application logic", async 
       await send(server.port, target, {
         method: "GET",
         authorization,
-        guestToken,
       })
     ).status,
     401,
@@ -203,12 +233,10 @@ test("URL, method, and raw body tampering fail before application logic", async 
           rpcBody.toString().replace('"dark":false', '"dark":true'),
         ),
         authorization,
-        guestToken,
       })
     ).status,
     401,
   );
-  assert.equal(server.verifications, 0);
 });
 
 test("pairing requires a one-time local token and candidate-key signature", async (t) => {
@@ -233,5 +261,4 @@ test("pairing requires a one-time local token and candidate-key signature", asyn
     ).status,
     401,
   );
-  assert.equal(server.verifications, 0);
 });

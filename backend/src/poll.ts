@@ -3,9 +3,6 @@
  * snapshots. InstantDB then pushes them to subscribed apps in real time —
  * this is what makes the dashboard update without the app asking.
  */
-import { unseal } from "./crypto";
-import type { AppEnv } from "./env";
-import { readStatus } from "./status";
 import {
   endClimateSession,
   latestParkedAt,
@@ -15,7 +12,10 @@ import {
   saveSnapshot,
   updateClimateSession,
   type Db,
-} from "./store";
+} from "./application-store";
+import { unseal } from "./crypto";
+import type { AppEnv } from "./env";
+import { readStatus } from "./status";
 import { ensureTokens } from "./tokens";
 import {
   vwAwaitCommandResult,

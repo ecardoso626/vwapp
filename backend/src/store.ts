@@ -3,10 +3,10 @@ import { id, init } from "@instantdb/admin";
 import type { StatusDTO, VehicleDTO } from "@vwapp/contract";
 import schema from "@vwapp/db";
 import type { Sealed } from "./crypto";
-import type { AppEnv } from "./env";
+import type { WorkerEnv } from "./env";
 import type { InboxMessage, VwTokens } from "./vw/client";
 
-export function getDb(env: AppEnv) {
+export function getDb(env: WorkerEnv) {
   return init({
     appId: env.INSTANT_APP_ID,
     adminToken: env.INSTANT_ADMIN_TOKEN,

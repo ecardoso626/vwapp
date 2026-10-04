@@ -8,8 +8,8 @@
  * every-minute cron from hammering the S-PIN challenge endpoint.
  */
 import type { StatusDTO } from "@vwapp/contract";
+import type { Db, StoredAccount, StoredVehicle } from "./application-store";
 import type { AppEnv } from "./env";
-import type { Db, StoredAccount, StoredVehicle } from "./store";
 import { ensureCarnetToken } from "./tokens";
 import { VwAuthError, vwGetStatus } from "./vw/client";
 

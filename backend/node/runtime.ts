@@ -4,14 +4,15 @@ import { RPCHandler } from "@orpc/server/fetch";
 import { CORSPlugin } from "@orpc/server/plugins";
 import { authenticateHttpRequest, authHttpError } from "../auth/http";
 import type { DeviceAuthService } from "../auth/service";
+import type { Db } from "../src/application-store";
 import { router } from "../src/router";
-import type { Db } from "../src/store";
 import type { NodeConfig } from "./config";
 import {
   createNodeScheduler,
   type SchedulerClock,
   type SchedulerJobs,
 } from "./scheduler";
+import { OWNER_ID } from "./sqlite-store";
 
 export interface NodeServices extends SchedulerJobs {
   auth: DeviceAuthService;
@@ -71,27 +72,6 @@ export function createNodeRuntime(
       return;
     }
 
-    // InstantDB remains the transitional data owner. A device signature alone
-    // cannot claim an Instant user; the guest token is verified separately.
-    const guestTokenHeaders = request.rawHeaders.filter(
-      (value, index) =>
-        index % 2 === 0 && value.toLowerCase() === "x-instant-token",
-    );
-    if (guestTokenHeaders.length > 1) {
-      response.writeHead(401);
-      response.end("Unauthorized");
-      return;
-    }
-    const token = request.headers["x-instant-token"];
-    let userId: string | null = null;
-    if (typeof token === "string" && token !== "") {
-      try {
-        userId = (await services.db.auth.verifyToken(token)).id;
-      } catch {
-        userId = null;
-      }
-    }
-
     const headers = new Headers();
     for (const [name, value] of Object.entries(request.headers)) {
       if (
@@ -123,7 +103,7 @@ export function createNodeRuntime(
       rpcRequest,
       {
         prefix: "/rpc",
-        context: { env: config.env, db: services.db, userId },
+        context: { env: config.env, db: services.db, userId: OWNER_ID },
       },
     );
     if (!matched) {

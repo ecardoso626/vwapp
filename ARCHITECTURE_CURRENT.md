@@ -4,6 +4,8 @@ Inspected 2026-10-02 America/Chicago. Repository: `https://github.com/ecardoso62
 
 This document is a historical Phase 0 source snapshot. Phase 3 removed the voice/AI paths described below; Phase 4 added a separate Node runtime beside the Worker. See `MIGRATION_PLAN.md` §17 and `docs/NODE_RUNTIME.md` for the current state.
 
+**Current Phase 6B overlay:** The mobile app and Cloudflare Worker still use InstantDB. The separate Node entrypoint requires NIP-98 authorized-device authentication and uses SQLite for account, encrypted VW session, vehicle, snapshot/observation, climate-session, and message state. The shared router/VW protocol behavior is retained through the narrow application-store boundary; see [Node SQLite cutover](docs/NODE_SQLITE_CUTOVER.md). No deployment or live data import occurred.
+
 Source references below are repository-relative paths and original line numbers. The immutable [source tree](https://github.com/ecardoso626/vwapp/tree/15500a78ff6a33310e443c91a9b6c3e62554b2cc) is the baseline. See `MIGRATION_PLAN.md` for proposals and `PHASE0_COMMAND_LOG.md` for commands/results.
 
 ## System and navigation

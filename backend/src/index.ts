@@ -1,10 +1,14 @@
 import { onError } from "@orpc/server";
 import { RPCHandler } from "@orpc/server/fetch";
 import { CORSPlugin } from "@orpc/server/plugins";
-import type { AppEnv } from "./env";
+import { registerInstantAdapter } from "./application-store";
+import type { WorkerEnv } from "./env";
 import { pollAllVehicles, runClimateKeepalive } from "./poll";
 import { router } from "./router";
-import { getDb } from "./store";
+import * as instant from "./store";
+
+registerInstantAdapter(instant);
+const { getDb } = instant;
 
 const handler = new RPCHandler(router, {
   plugins: [new CORSPlugin()],
@@ -16,7 +20,7 @@ const handler = new RPCHandler(router, {
 });
 
 export default {
-  async fetch(request: Request, env: AppEnv): Promise<Response> {
+  async fetch(request: Request, env: WorkerEnv): Promise<Response> {
     const db = getDb(env);
 
     // The app authenticates with its Instant guest refresh token; verifying it
@@ -44,7 +48,7 @@ export default {
 
   scheduled(
     _controller: ScheduledController,
-    env: AppEnv,
+    env: WorkerEnv,
     ctx: ExecutionContext,
   ): void {
     const db = getDb(env);

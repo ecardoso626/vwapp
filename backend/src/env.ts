@@ -1,6 +1,4 @@
 export interface AppEnv {
-  INSTANT_APP_ID: string;
-  INSTANT_ADMIN_TOKEN: string;
   /** base64 of 32 random bytes — AES-GCM key for sealing VW credentials. */
   CREDS_ENC_KEY: string;
   /**
@@ -12,4 +10,10 @@ export interface AppEnv {
   APPLE_MAPS_KEY_ID?: string;
   /** The MapKit private key, PKCS#8 PEM (.p8) contents. */
   APPLE_MAPS_PRIVATE_KEY?: string;
+}
+
+/** Hosted persistence belongs to the Worker composition only. */
+export interface WorkerEnv extends AppEnv {
+  INSTANT_APP_ID: string;
+  INSTANT_ADMIN_TOKEN: string;
 }

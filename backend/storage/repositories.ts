@@ -150,6 +150,7 @@ export class VehicleRepository {
     state: VehicleState,
     recordedAt: number,
     sampleIntervalMs = 15 * 60_000,
+    withinTransaction = false,
   ): { revision: number; observed: boolean; sampled: boolean } {
     if (!Number.isInteger(sampleIntervalMs) || sampleIntervalMs <= 0)
       throw new Error("sampleIntervalMs must be a positive integer");
@@ -188,7 +189,7 @@ export class VehicleRepository {
       b.targetSocPercent !== null ||
       c.activity !== "unknown" ||
       c.targetTempF !== null;
-    return this.storage.transaction(() => {
+    const write = () => {
       const previous = this.storage.db
         .prepare(
           "SELECT fingerprint, revision FROM vehicle_current_state WHERE vehicle_id = ?",
@@ -260,7 +261,8 @@ export class VehicleRepository {
         sampled = result.changes === 1;
       }
       return { revision, observed, sampled };
-    });
+    };
+    return withinTransaction ? write() : this.storage.transaction(write);
   }
 
   getCurrentState(

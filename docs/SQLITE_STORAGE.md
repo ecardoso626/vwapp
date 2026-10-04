@@ -1,16 +1,18 @@
 # SQLite storage foundation (Phase 5)
 
-This is an additive, offline-tested storage implementation under `backend/storage/`. The Worker, Node HTTP runtime, mobile app, and InstantDB still use their existing production paths. No existing account, snapshot, or credential has been imported. Do not point it at real VW data until a later migration explicitly wires and reviews that flow.
+This storage implementation lives under `backend/storage/`. Phase 6B connects the Node HTTP runtime to it for authentication and application state; the Worker and mobile app continue using InstantDB. No existing account, snapshot, or credential has been imported. See [Node SQLite cutover](NODE_SQLITE_CUTOVER.md).
 
 ## Runtime and location
 
 The implementation uses Node's `node:sqlite` `DatabaseSync` and `backup` APIs with no native addon or ORM dependency. The current project runs Node 22; the backup API requires Node 22.16 or later. The Node 22 SQLite API is experimental, so pin and validate the exact Node image on ARM64 Linux before deployment. It has no package-specific native binary to build or distribute. The connection uses foreign keys, a 5-second busy timeout, and WAL mode for file databases. One synchronous writer per application process is intended; this is not a multi-process write coordination design.
 
-`BUZZKEY_SQLITE_PATH` supplies the database file path; the application does not assume a Mac or Umbrel directory. Create a private, persistent directory with appropriate owner and permissions before opening a file database. Tests create temporary directories. This configuration is not yet loaded by either production runtime.
+`BUZZKEY_SQLITE_PATH` supplies the database file path; the application does not assume a Mac or Umbrel directory. Create a private, persistent directory with appropriate owner and permissions before opening a file database. Tests create temporary directories. The Node runtime loads this configuration; the Worker does not.
 
 ## Schema and migrations
 
 `schema_migrations` records ordered version, name, SQL checksum, and application time. `applyMigrations` validates the complete ledger and applies remaining migrations in one `BEGIN IMMEDIATE` transaction. Reopening is idempotent; a changed, missing, or future version fails closed. Add new numbered SQL migrations rather than editing an applied migration. The initial schema is version 1 and uses SQLite `STRICT` tables, foreign keys, and constraints.
+
+Version 2 adds NIP-98 devices, pairing and replay records. Version 3 adds the Node application tables `vw_account_sessions`, `owner_account_link`, `legacy_snapshots`, `climate_sessions`, and `messages`; it does not import InstantDB data.
 
 | Table                   | Purpose                                                                                                                                                                     |
 | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -26,11 +28,11 @@ The full state payload preserves `null` and `unknown` values, capabilities, loca
 
 `VehicleRepository` owns account/vehicle identity, current state, observations, and coarse samples. `CommandRepository` owns future command records. `SecretRepository` owns secret envelopes. `SqliteStorage.transaction` provides synchronous `BEGIN IMMEDIATE` commit/rollback; nested or async callbacks fail. The current-state write, observation insert, and coarse sample insert form one transaction. Rotation is likewise all-or-nothing. Application/domain modules do not need to issue SQL directly.
 
-There is no generic application configuration table in version 1. The known runtime configuration is deployment input, while present InstantDB climate sessions and message overrides need explicit semantics before a later migration. A future device table belongs to the authenticated API phase. Avoid placing secrets in a future generic configuration table.
+There is no generic application configuration table. Runtime settings remain deployment input. Phase 6B stores Node climate sessions and message overrides in purpose-specific version 3 tables, while Worker equivalents remain in InstantDB. Avoid placing secrets in a generic configuration table.
 
 ## Current-data classification
 
-This classification describes the existing InstantDB/account and app fields; it does not mean they have been migrated.
+This classification describes the original InstantDB/account and app fields. Phase 6B maps the Node copy as documented in [Node SQLite cutover](NODE_SQLITE_CUTOVER.md); it does not import live InstantDB records.
 
 | Class                 | Current examples                                                                                                                                                                                                                              | Storage treatment                                                                                                                                                                                                                                           |
 | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -43,7 +45,7 @@ This classification describes the existing InstantDB/account and app fields; it 
 
 `SecretRepository` encrypts each UTF-8 value with Node crypto AES-256-GCM, a fresh random 96-bit nonce, and a 128-bit tag. The stored envelope includes version, algorithm, key ID, nonce, ciphertext, tag, update time, and optional expiry. Authenticated additional data binds version, algorithm, key ID, account ID, purpose, optional vehicle scope, expiry, and update time. A unique `(key_id, nonce)` constraint also rejects exact nonce reuse. Wrong keys, metadata substitution, or byte tampering throw `SecretAuthenticationError`; no plaintext/default is returned.
 
-Supply `BUZZKEY_MASTER_KEY_ID` and exactly one of `BUZZKEY_MASTER_KEY_FILE` (preferred protected file) or `BUZZKEY_MASTER_KEY_B64` (runtime environment). The latter must be padded base64 for exactly 32 bytes. The key and its source file are never written to SQLite or Git. Neither runtime currently loads these settings. An operator must keep the old key available for old database backups after rotation. `SecretRepository.rotate(newKeyId, newKey)` decrypts all rows with the current key and re-encrypts under the new key in a single transaction. It changes the active in-memory key only after commit. Rotation cannot repair an already tampered or undecryptable row; it rolls back instead.
+Supply `BUZZKEY_MASTER_KEY_ID` and exactly one of `BUZZKEY_MASTER_KEY_FILE` (preferred protected file) or `BUZZKEY_MASTER_KEY_B64` (runtime environment). The latter must be padded base64 for exactly 32 bytes. The key and its source file are never written to SQLite or Git. Node loads these settings; Worker does not. An operator must keep the old key available for old database backups after rotation. `SecretRepository.rotate(newKeyId, newKey)` decrypts all rows with the current key and re-encrypts under the new key in a single transaction. It changes the active in-memory key only after commit. Rotation cannot repair an already tampered or undecryptable row; it rolls back instead.
 
 Envelope encryption covers reusable credentials, **not** full-database privacy. Vehicle state, VIN, location, command metadata, and history remain plaintext in the SQLite file and require protected volume/backup handling. A compromised live host can read process memory and decrypted secrets.
 
@@ -53,4 +55,4 @@ Use `SqliteStorage.backupTo(destination)` for a consistent SQLite backup while W
 
 For recovery, stop command/scheduler activity, restore the database to a private path, supply the matching key ID/key, open and validate migrations plus `integrityCheck()`, decrypt a known synthetic/controlled record, and inspect pending commands before enabling work. Never replay all pending vehicle commands automatically. Offline tests exercise WAL-safe backup, current/history recovery, successful decryption with the matching external key, and failure with a wrong key.
 
-A later cutover must map InstantDB account/vehicle IDs, sessions, messages, and snapshots into reviewed SQLite repositories; establish secret import/rotation and retention policy; wire exactly one runtime writer; migrate read APIs and mobile data flow only after authentication and rollback plans are ready. This phase provides the storage foundation only.
+Any future live data import must map InstantDB account/vehicle IDs, sessions, messages, and snapshots into reviewed SQLite records; establish secret import/rotation and retention policy; and enable exactly one live scheduler. The mobile data flow remains on InstantDB until a separately reviewed cutover.

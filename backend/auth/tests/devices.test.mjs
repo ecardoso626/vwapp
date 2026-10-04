@@ -13,7 +13,7 @@ test("migration 2 records device, pairing and replay tables", (t) => {
   const { store } = temporaryStore(t);
   assert.deepEqual(
     migrationStatus(store.db).map((row) => row.version),
-    [1, 2],
+    [1, 2, 3],
   );
   const names = store.db
     .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")

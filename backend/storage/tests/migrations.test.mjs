@@ -10,7 +10,7 @@ test("empty database migrates to latest version with foreign keys enabled", (t) 
   const status = migrationStatus(store.db);
   assert.deepEqual(
     status.map((row) => row.version),
-    [1, 2],
+    [1, 2, 3],
   );
   assert.equal(status[0].name, "initial_storage_foundation");
   assert.equal(status[1].name, "owner_device_authentication");
@@ -39,7 +39,7 @@ test("failing migration rolls back its tables and ledger entry", (t) => {
   assert.throws(() => applyMigrations(store.db, broken));
   assert.deepEqual(
     migrationStatus(store.db).map((row) => row.version),
-    [1, 2],
+    [1, 2, 3],
   );
   assert.equal(
     store.db

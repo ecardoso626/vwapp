@@ -2,6 +2,8 @@
 
 This is historical Phase 0 evidence. Phase 3 removed the voice/AI source, binding and microphone permission mentioned below; old logs or cached recordings, if any, were outside this source-only change.
 
+**Phase 6B update:** Node now maps NIP-98 authorized devices to one SQLite owner without an Instant guest token. Its reusable VW username, password, S-PIN, access/refresh/ID/carnet tokens and PKCE verifier are persisted as Phase 5 AES-256-GCM envelopes with externally supplied key material. Worker/mobile InstantDB paths remain unchanged. The Node scheduler defaults off, and no live data import, VW request or deployment was performed. See [Node SQLite cutover](docs/NODE_SQLITE_CUTOVER.md). The Phase 0 findings below describe the original Worker trust boundary.
+
 Phase 0, 2026-10-02. Baseline: `ecardoso626/vwapp`, `umbrel-selfhosted`, `15500a78ff6a33310e443c91a9b6c3e62554b2cc`. This is a source review and design, not a penetration test or proof of current VW interoperability. No real credentials were requested, read, stored or used.
 
 ## Current trust boundaries and findings

@@ -1,9 +1,5 @@
 import { implement, ORPCError } from "@orpc/server";
 import { contract, type VehicleDTO } from "@vwapp/contract";
-import { seal, sha256Hex, timingSafeEqual, unseal } from "./crypto";
-import type { AppEnv } from "./env";
-import { isMapsConfigured, signSnapshotUrl } from "./maps";
-import { readStatus } from "./status";
 import {
   clearUserData,
   endClimateSession,
@@ -22,7 +18,11 @@ import {
   type StoredAccount,
   type StoredUser,
   type StoredVehicle,
-} from "./store";
+} from "./application-store";
+import { seal, sha256Hex, timingSafeEqual, unseal } from "./crypto";
+import type { AppEnv } from "./env";
+import { isMapsConfigured, signSnapshotUrl } from "./maps";
+import { readStatus } from "./status";
 import { ensureCarnetToken, ensureTokens, reauth } from "./tokens";
 import {
   VwAuthError,

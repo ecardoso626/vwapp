@@ -13,18 +13,19 @@ import {
   signedRequest,
 } from "../../auth/tests/helper.mjs";
 import { SqliteStorage } from "../../storage/database.ts";
+import { SecretRepository } from "../../storage/secrets.ts";
 import { loadNodeConfig } from "../config.ts";
 import { createNodeRuntime, installShutdownSignals } from "../runtime.ts";
 import { createNodeScheduler, POLL_INTERVAL_MS } from "../scheduler.ts";
+import { NodeSqliteStore } from "../sqlite-store.ts";
 
 const syntheticEnv = {
   NODE_HOST: "127.0.0.1",
   NODE_PORT: "0",
   NODE_PUBLIC_ORIGIN: origin,
   BUZZKEY_SQLITE_PATH: ":memory:",
-  INSTANT_APP_ID: "synthetic-instant-app",
-  INSTANT_ADMIN_TOKEN: "synthetic-admin-token",
-  CREDS_ENC_KEY: Buffer.alloc(32, 7).toString("base64"),
+  BUZZKEY_MASTER_KEY_ID: "synthetic-key",
+  BUZZKEY_MASTER_KEY_B64: Buffer.alloc(32, 7).toString("base64"),
 };
 function fakeClock() {
   let tick,
@@ -70,17 +71,7 @@ function localRequest(
       body === undefined ? undefined : JSON.stringify({ json: body });
     const headers = {
       ...(token === undefined ? {} : { "x-instant-token": token }),
-      ...(authorization === undefined && token === undefined
-        ? {}
-        : {
-            authorization:
-              authorization ??
-              signedRequest({
-                method,
-                target: path,
-                body: Buffer.from(payload ?? ""),
-              }).request.authorization,
-          }),
+      ...(authorization === undefined ? {} : { authorization }),
       ...(payload === undefined ? {} : { "content-type": "application/json" }),
     };
     const req = request(
@@ -98,29 +89,22 @@ function localRequest(
   });
 }
 function fakeServices() {
-  let verifications = 0;
   const storage = SqliteStorage.open(":memory:");
   const devices = new DeviceRepository(storage);
   devices.pair(devices.issuePairing(nowMs), pubkeyA, "Synthetic iPhone", nowMs);
+  const key = Buffer.alloc(32, 7);
   return {
     services: {
       auth: new DeviceAuthService(devices, origin, () => nowMs),
-      db: {
-        auth: {
-          async verifyToken(token) {
-            verifications++;
-            if (token !== "synthetic-guest-token")
-              throw new Error("invalid synthetic token");
-            return { id: "synthetic-user" };
-          },
-        },
-      },
+      db: new NodeSqliteStore(
+        storage,
+        new SecretRepository(storage, "synthetic-key", key),
+        key.toString("base64"),
+      ),
       poll: () => Promise.resolve(),
       climate: () => Promise.resolve(),
     },
-    get verifications() {
-      return verifications;
-    },
+    close: () => storage.close(),
   };
 }
 
@@ -136,8 +120,8 @@ test("validated config separates required secrets from optional Node settings", 
       .schedulerEnabled,
     true,
   );
-  assert.equal(config.env.INSTANT_APP_ID, syntheticEnv.INSTANT_APP_ID);
-  assert.equal(config.env.CREDS_ENC_KEY, syntheticEnv.CREDS_ENC_KEY);
+  assert.equal(config.env.CREDS_ENC_KEY, syntheticEnv.BUZZKEY_MASTER_KEY_B64);
+  assert.equal(config.masterKeyId, "synthetic-key");
   assert.equal(config.env.APPLE_MAPS_TEAM_ID, undefined);
 });
 test("invalid config fails clearly without printing secret values", () => {
@@ -145,19 +129,19 @@ test("invalid config fails clearly without printing secret values", () => {
     () =>
       loadNodeConfig({
         ...syntheticEnv,
-        CREDS_ENC_KEY: "sensitive-invalid-key",
+        BUZZKEY_MASTER_KEY_B64: "sensitive-invalid-key",
       }),
     (error) =>
-      error.message.includes("CREDS_ENC_KEY") &&
+      error.message.includes("Master key") &&
       !error.message.includes("sensitive-invalid-key"),
   );
   assert.throws(
-    () => loadNodeConfig({ ...syntheticEnv, INSTANT_ADMIN_TOKEN: "" }),
-    /INSTANT_ADMIN_TOKEN/,
+    () => loadNodeConfig({ ...syntheticEnv, BUZZKEY_MASTER_KEY_ID: "" }),
+    /BUZZKEY_MASTER_KEY_ID/,
   );
   assert.throws(
-    () => loadNodeConfig({ ...syntheticEnv, INSTANT_APP_ID: "" }),
-    /INSTANT_APP_ID/,
+    () => loadNodeConfig({ ...syntheticEnv, BUZZKEY_MASTER_KEY_B64: "" }),
+    /BUZZKEY_MASTER_KEY_B64/,
   );
   assert.throws(
     () => loadNodeConfig(syntheticEnv),
@@ -291,9 +275,9 @@ test("Node server starts; health and unknown paths are safe", async () => {
       ).status,
       404,
     );
-    assert.equal(mocks.verifications, 0);
   } finally {
     await runtime.stop();
+    mocks.close();
   }
   await assert.rejects(localRequest(port, "/health"));
 });
@@ -317,6 +301,7 @@ test("Node runtime arms the scheduler only after listening and disarms it on sto
   await settle();
   assert.equal(polls, 1);
   await runtime.stop();
+  mocks.close();
   assert.equal(clock.cleared, true);
   clock.fire();
   await settle();
@@ -332,17 +317,31 @@ test("known oRPC request routes through the real router with mock identity", asy
   try {
     const response = await localRequest(port, "/rpc/vehicle/parkedMapUrl", {
       method: "POST",
-      token: "synthetic-guest-token",
+      authorization: signedRequest({
+        method: "POST",
+        target: "/rpc/vehicle/parkedMapUrl",
+        body: Buffer.from(
+          JSON.stringify({
+            json: {
+              lat: 41,
+              lng: -87,
+              widthPt: 300,
+              heightPt: 200,
+              dark: false,
+            },
+          }),
+        ),
+      }).request.authorization,
       body: { lat: 41, lng: -87, widthPt: 300, heightPt: 200, dark: false },
     });
     assert.equal(response.status, 200, response.text);
     assert.deepEqual(JSON.parse(response.text), { json: { url: null } });
-    assert.equal(mocks.verifications, 1);
   } finally {
     await runtime.stop();
+    mocks.close();
   }
 });
-test("invalid guest token cannot use the protected RPC procedure", async () => {
+test("guest token alone cannot use the protected RPC procedure", async () => {
   const mocks = fakeServices();
   const runtime = createNodeRuntime(
     loadNodeConfig(syntheticEnv, "test"),
@@ -352,13 +351,13 @@ test("invalid guest token cannot use the protected RPC procedure", async () => {
   try {
     const response = await localRequest(port, "/rpc/vehicle/parkedMapUrl", {
       method: "POST",
-      token: "invalid-synthetic-token",
+      token: "synthetic-guest-token",
       body: { lat: 41, lng: -87, widthPt: 300, heightPt: 200, dark: false },
     });
     assert.equal(response.status, 401);
-    assert.equal(mocks.verifications, 1);
   } finally {
     await runtime.stop();
+    mocks.close();
   }
 });
 for (const signal of ["SIGTERM", "SIGINT"]) {

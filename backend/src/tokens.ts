@@ -1,12 +1,12 @@
 /** Keeping a stored VW account's tokens usable (refresh or re-login). */
-import { unseal } from "./crypto";
-import type { AppEnv } from "./env";
 import {
   saveCarnetToken,
   updateTokens,
   type Db,
   type StoredAccount,
-} from "./store";
+} from "./application-store";
+import { unseal } from "./crypto";
+import type { AppEnv } from "./env";
 import {
   jwtExpiryMs,
   VwAuthError,

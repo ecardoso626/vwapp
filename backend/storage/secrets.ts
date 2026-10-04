@@ -194,6 +194,14 @@ export class SecretRepository {
         };
   }
 
+  delete(reference: SecretReference): void {
+    this.storage.db
+      .prepare(
+        "DELETE FROM account_secrets WHERE account_id = ? AND purpose = ? AND scope = ?",
+      )
+      .run(reference.accountId, reference.purpose, normalizedScope(reference));
+  }
+
   /** All rows rotate atomically; the in-memory active key changes only after commit. */
   rotate(newKeyId: string, newKey: Buffer): number {
     if (!/^[A-Za-z0-9_-]{1,64}$/.test(newKeyId) || newKeyId === this.keyId)
