@@ -105,3 +105,9 @@ future validation.
 Do not add real VW probes to `pnpm test:vw`. Phase 2 can add more synthetic
 coverage while introducing narrow interfaces, and must keep any behavior
 change explicit and reviewable.
+
+## Accelerated Node control cutover regression
+
+The original 54 protocol characterization tests and 13 adapter/domain tests remain unchanged. Their table above describes the legacy protocol/router coverage; the Node application tests do not claim to complete every legacy branch. The milestone adds 56 tests beyond the existing 198-test regression: 16 charging, 16 climate, 12 Camp lifecycle, seven wake, four mobile intent/import-boundary tests and one v5-to-v7 upgrade test. Existing storage assertions also verify separate climate-fetch freshness and deduplication.
+
+Coverage includes observed vs accepted outcomes, target conflicts, lost responses, deadlines/late writes, idempotency/restart reconciliation, staged climate correlations, server-owned restart cycles, ignition/busy handling, local schedule changes, expiry, device/owner security, old Node alias rejection and all mobile route imports. All use synthetic offline fixtures with hard unexpected-fetch failure; no live protocol behavior is verified. See [CONTROL_CUTOVER.md](CONTROL_CUTOVER.md) for category-specific evidence limits and unchanged VW caveats.

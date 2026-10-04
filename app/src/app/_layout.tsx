@@ -1,5 +1,4 @@
 import { BootError, BootLoading } from "@/components/boot-screens";
-import { LegacyControlProvider } from "@/providers/legacy-control-provider";
 import { LoginFlowProvider } from "@/providers/login-flow";
 import { SessionProvider, useSession } from "@/providers/session-provider";
 import { ThemeProvider, useThemeToggle } from "@/providers/theme-provider";
@@ -107,11 +106,9 @@ export default function RootLayout() {
           <KeyboardProvider>
             <QueryClientProvider client={queryClient}>
               <SessionProvider>
-                <LegacyControlProvider>
-                  <LoginFlowProvider>
-                    <RootNavigator />
-                  </LoginFlowProvider>
-                </LegacyControlProvider>
+                <LoginFlowProvider>
+                  <RootNavigator />
+                </LoginFlowProvider>
               </SessionProvider>
             </QueryClientProvider>
           </KeyboardProvider>

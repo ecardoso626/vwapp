@@ -1,9 +1,8 @@
-import { climateStartKey } from "@/components/climate-control";
 import { DurationField } from "@/components/duration-field";
 import { IosButton } from "@/components/ios-list";
-import { useLegacyControlGate } from "@/providers/legacy-control-provider";
+import { usePassiveVehicles } from "@/hooks/use-passive-data";
+import { useVehicleControl } from "@/hooks/use-vehicle-control";
 import { useThemeToggle } from "@/providers/theme-provider";
-import { orpc } from "@/rpc";
 import { Host, Stepper } from "@expo/ui/swift-ui";
 import {
   disabled as disabledModifier,
@@ -11,7 +10,6 @@ import {
   offset,
   scaleEffect,
 } from "@expo/ui/swift-ui/modifiers";
-import { useMutation, useQuery } from "@tanstack/react-query";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useState } from "react";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -41,17 +39,22 @@ export default function ClimateSheet() {
   const { pref } = useThemeToggle();
   const router = useRouter();
   const {
-    uuid,
+    vehicleId,
     mode,
     tempF: tempFParam,
     endMs: endMsParam,
   } = useLocalSearchParams<{
-    uuid: string;
+    vehicleId: string;
     mode?: string;
     tempF?: string;
     endMs?: string;
   }>();
-  const { allowed, reason } = useLegacyControlGate(uuid);
+  const control = useVehicleControl(vehicleId, "climate");
+  const allowed = control.canSend;
+  const reason = "Connect VW on BuzzKey and resolve any saved command first.";
+  const vehicles = usePassiveVehicles();
+  const cached = vehicles.data?.vehicles.find((v) => v.id === vehicleId)
+    ?.current?.state.climate;
   const adjust = mode === "adjust";
 
   const seededEndMs = adjust && endMsParam != null ? Number(endMsParam) : null;
@@ -67,28 +70,13 @@ export default function ClimateSheet() {
   // from the seed (the session's temp, or the car's current target).
   const [userTempF, setUserTempF] = useState<number | null>(null);
 
-  // Start fetches the car's current target temp (plain access-token read, no
-  // S-PIN); Adjust already carries it via params.
-  const info = useQuery({
-    ...orpc.vehicle.climateInfo.queryOptions({ input: { uuid } }),
-    enabled: allowed && !adjust,
-    staleTime: 60_000,
-  });
-
-  const startCmd = useMutation({
-    ...orpc.vehicle.climateStart.mutationOptions(),
-    mutationKey: climateStartKey(uuid),
-    onSuccess: () => {
-      router.back();
-    },
-  });
+  // Seed from cached observed settings; Adjust carries the session intent.
+  const startCmd = control.send;
 
   // The seed (session's temp for Adjust, car's current setting for Start); null
   // while loading.
   const paramTempF = tempFParam != null ? Number(tempFParam) : null;
-  const seedTempF = adjust
-    ? paramTempF
-    : (info.data?.targetTempF ?? (info.isError ? DEFAULT_TEMP : null));
+  const seedTempF = adjust ? paramTempF : (cached?.targetTempF ?? DEFAULT_TEMP);
   const tempReady = userTempF !== null || seedTempF !== null;
   const tempF = userTempF ?? seedTempF ?? DEFAULT_TEMP;
   // Adjusting a running session reschedules/retunes it — it never "starts"
@@ -189,7 +177,19 @@ export default function ClimateSheet() {
                   Math.max(5, Math.round((endMs - Date.now()) / 60000)),
                 )
               : durationMin;
-          startCmd.mutate({ uuid, tempF, durationMin: effectiveMin });
+          startCmd.mutate(
+            {
+              vehicleId,
+              action: "climate_start",
+              tempF,
+              durationMin: effectiveMin,
+            },
+            {
+              onSuccess: () => {
+                router.back();
+              },
+            },
+          );
         }}
         label={actionLabel}
       />

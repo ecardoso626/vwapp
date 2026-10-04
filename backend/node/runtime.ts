@@ -114,6 +114,13 @@ export function createNodeRuntime(
         "/rpc/auth/checkCredentials",
         "/rpc/auth/logout",
         "/rpc/vehicle/command",
+        "/rpc/vehicle/chargeStart",
+        "/rpc/vehicle/chargeStop",
+        "/rpc/vehicle/setChargeLimit",
+        "/rpc/vehicle/climateStart",
+        "/rpc/vehicle/climateStop",
+        "/rpc/vehicle/climateInfo",
+        "/rpc/vehicle/refresh",
       ].includes(
         decodeURIComponent((request.url ?? "").split("?")[0] ?? "").replace(
           /\/+$/,

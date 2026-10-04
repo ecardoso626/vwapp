@@ -106,8 +106,10 @@ export async function fixture(t, options = {}) {
   let nonce = 0;
   const material = {
     secretKey: secret,
-    randomBytes: async (count) =>
-      Uint8Array.from({ length: count }, (_, i) => (i + ++nonce) % 256),
+    randomBytes: async (count) => {
+      nonce++;
+      return Uint8Array.from({ length: count }, (_, i) => (i + nonce) % 256);
+    },
     sha256,
     nowMs: () => Date.now(),
   };
@@ -119,6 +121,7 @@ export async function fixture(t, options = {}) {
       observationAttempts: 1,
       ...options,
     });
+    services.climate = () => services.commands.tickClimate();
     runtime = createNodeRuntime(config, services);
     const { port } = await runtime.start();
     fetcher = loopback(port);

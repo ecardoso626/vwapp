@@ -1,10 +1,9 @@
+import { ControlFeedback } from "@/components/control-feedback";
 import { IosButton, IosGroup, IosRow } from "@/components/ios-list";
 import { agoLabel, useNow } from "@/hooks/use-now";
 import { useFirstPassiveVehicle } from "@/hooks/use-passive-data";
+import { useVehicleControl } from "@/hooks/use-vehicle-control";
 import { useIosColors } from "@/ios-colors";
-import { useLegacyControlGate } from "@/providers/legacy-control-provider";
-import { orpc } from "@/rpc";
-import { useMutation } from "@tanstack/react-query";
 import { Stack } from "expo-router";
 import { ScrollView } from "react-native";
 import { Paragraph, Spinner, Text } from "tamagui";
@@ -17,10 +16,13 @@ export default function UpdatesScreen() {
   const now = useNow();
   const ios = useIosColors();
   const { vehiclesQuery, vehicle, snapshot } = useFirstPassiveVehicle();
-  const { allowed, reason } = useLegacyControlGate(vehicle?.uuid);
+  const control = useVehicleControl(vehicle?.id ?? "", "wake");
+  const allowed = control.canSend;
+  const reason =
+    "Connect VW on BuzzKey and resolve saved requests before waking the vehicle.";
   const isLoading = vehiclesQuery.isLoading;
 
-  const refresh = useMutation(orpc.vehicle.refresh.mutationOptions());
+  const refresh = control.send;
   const errorMessage = (vehiclesQuery.error ?? refresh.error)?.message;
 
   return (
@@ -36,9 +38,9 @@ export default function UpdatesScreen() {
           style={{ color: ios.secondaryLabel, fontSize: 15, lineHeight: 20 }}
         >
           These times distinguish the car’s reported updates from when the
-          BuzzKey server received them. “Refresh now” uses the legacy Worker
-          wake path; passive screens otherwise read the server cache. The Worker
-          refresh does not update the separate Node cache immediately.
+          BuzzKey server received them. “Refresh now” requests vehicle data
+          through Node. An accepted wake is not a vehicle response; normal
+          refresh reads the server cache.
         </Paragraph>
 
         {!allowed ? <Paragraph color="$color10">{reason}</Paragraph> : null}
@@ -50,7 +52,7 @@ export default function UpdatesScreen() {
           onPress={() => {
             if (!allowed || vehicle === undefined) return;
             refresh.mutate(
-              { uuid: vehicle.uuid },
+              { vehicleId: vehicle.id, action: "wake" },
               {
                 onSuccess: () => {
                   void vehiclesQuery.refetch();
@@ -61,6 +63,7 @@ export default function UpdatesScreen() {
           label={refresh.isPending ? "Refreshing…" : "Refresh now"}
         />
 
+        <ControlFeedback control={control} />
         {isLoading ? (
           <Spinner
             color="$color"

@@ -1,8 +1,8 @@
 import {
-  lockCommandSchema,
-  lockRequestSchema,
-  type LockCommand,
-} from "@vwapp/contract/lock-command";
+  controlCommandSchema,
+  controlRequestSchema,
+} from "@vwapp/contract/control";
+import { lockCommandSchema } from "@vwapp/contract/lock-command";
 import type { AuthorizedDevice } from "../auth/devices";
 import { unseal } from "../src/crypto";
 import type { AppEnv } from "../src/env";
@@ -11,6 +11,7 @@ import { ensureCarnetToken, ensureTokens } from "../src/tokens";
 import { mapVehicleStatus } from "../src/vw/adapter";
 import {
   vwAwaitCommandResult,
+  VwBusyError,
   VwCommandError,
   vwLockUnlock,
 } from "../src/vw/client";
@@ -21,6 +22,8 @@ import {
   type DurableLockCommand,
 } from "../storage/lock-commands";
 import { VehicleRepository } from "../storage/repositories";
+import { applyCampResult, campFor, campTick, prepareCamp } from "./camp";
+import { executeControl } from "./control-executor";
 import type { PassiveResponse } from "./passive";
 import { OWNER_ID, type NodeSqliteStore } from "./sqlite-store";
 
@@ -48,6 +51,70 @@ export class NodeLockCommands {
   private readonly options: Required<LockCommandOptions>;
   private readonly jobs = new Map<string, Promise<void>>();
   private stopping = false;
+  private climateJob: Promise<void> | null = null;
+  private schedulerEnabled = false;
+  setSchedulerEnabled(enabled: boolean) {
+    this.schedulerEnabled = enabled;
+  }
+  async tickClimate(): Promise<void> {
+    if (this.stopping || this.climateJob !== null) return;
+    this.climateJob = campTick(
+      this.storage,
+      this.db,
+      this.env,
+      {
+        get: (id) => this.repository.get(id),
+        reconcile: (id) => this.reconcileManaged(id),
+        submit: (input, deviceId) => this.submitManaged(input, deviceId),
+      },
+      this.options.now,
+      this.options.deadlineMs,
+    ).finally(() => {
+      this.climateJob = null;
+    });
+    await this.climateJob;
+  }
+  async reconcileManaged(id: string) {
+    const c = this.repository.get(id);
+    if (c === null || !this.owned(c)) return null;
+    if (c.acceptedAt !== null && !["confirmed", "failed"].includes(c.status))
+      this.schedule(c, false);
+    await this.jobs.get(id);
+    return this.repository.get(id);
+  }
+  private async submitManaged(
+    input: import("@vwapp/contract/control").ControlRequest,
+    deviceId: string,
+  ) {
+    const device = this.storage.db
+      .prepare("SELECT pubkey,revoked_at FROM authorized_devices WHERE id=?")
+      .get(deviceId) as
+      { pubkey: string; revoked_at: number | null } | undefined;
+    const accountId = this.linkedAccount();
+    if (
+      device?.revoked_at !== null ||
+      accountId === null ||
+      this.vehicles.getVehicle(input.vehicleId)?.accountId !== accountId
+    )
+      return null;
+    try {
+      const { command, created } = this.repository.intent(
+        input,
+        accountId,
+        deviceId,
+        device.pubkey,
+        this.options.now(),
+        (c) => {
+          prepareCamp(this.storage, c, this.options.now(), true);
+        },
+      );
+      if (created) this.schedule(command, true);
+      await this.jobs.get(command.id);
+      return this.repository.get(command.id);
+    } catch {
+      return null;
+    }
+  }
   constructor(
     storage: SqliteStorage,
     db: NodeSqliteStore,
@@ -87,8 +154,10 @@ export class NodeLockCommands {
         command.accountId
     );
   }
-  private receipt(command: DurableLockCommand): LockCommand {
-    return lockCommandSchema.parse(command);
+  private receipt(command: DurableLockCommand) {
+    return command.action === "lock" || command.action === "unlock"
+      ? lockCommandSchema.parse(command)
+      : controlCommandSchema.parse(command);
   }
   private schedule(command: DurableLockCommand, submit: boolean) {
     if (this.jobs.has(command.id)) return;
@@ -101,6 +170,7 @@ export class NodeLockCommands {
   }
   async stop(): Promise<void> {
     this.stopping = true;
+    await this.climateJob;
     await Promise.all(this.jobs.values());
   }
 
@@ -141,6 +211,30 @@ export class NodeLockCommands {
       )
         throw new Error("PIN unavailable");
       const spin = credentials.spin;
+      if (command.action !== "lock" && command.action !== "unlock") {
+        command = await executeControl({
+          command,
+          submit,
+          account,
+          vehicle,
+          spin,
+          db: this.db,
+          env: this.env,
+          repository: this.repository,
+          vehicles: this.vehicles,
+          options: this.options,
+          bounded,
+          check,
+          authorized: () => {
+            const device = this.storage.db
+              .prepare("SELECT revoked_at FROM authorized_devices WHERE id = ?")
+              .get(command.deviceId) as
+              { revoked_at: number | null } | undefined;
+            return device?.revoked_at === null;
+          },
+        });
+        return;
+      }
       if (submit) {
         // Token preparation is still pre-submission. Never retry a PUT after
         // an ambiguous transport/protocol response, even with a fresh token.
@@ -157,7 +251,12 @@ export class NodeLockCommands {
           submittedAt: this.options.now(),
         });
         const correlationId = await bounded(
-          vwLockUnlock(tokens, vehicle.uuid, spin, command.action),
+          vwLockUnlock(
+            tokens,
+            vehicle.uuid,
+            spin,
+            command.action as "lock" | "unlock",
+          ),
         );
         check();
         // Correlation IDs are private opaque path components, never API fields.
@@ -238,6 +337,8 @@ export class NodeLockCommands {
           if (status.unlockedDoors.length > 0)
             state.security.lock =
               status.locked === true ? "unknown" : "unlocked";
+          const previous = this.vehicles.getCurrentState(vehicle.id);
+          if (previous !== null) state.climate = previous.state.climate;
           const sourceUpdatedAt = status.locksUpdatedAt ?? status.rvsUpdatedAt;
           this.vehicles.saveState(vehicle.id, state, fetchedAt);
           command = this.repository.update(command.id, {
@@ -294,11 +395,13 @@ export class NodeLockCommands {
       });
     } catch (error) {
       // Never reflect upstream bodies/errors, credentials or correlations.
+      command = this.repository.get(command.id) ?? command;
       const submitted = command.submittedAt !== null;
       const accepted = command.acceptedAt !== null;
       const explicitRejection =
-        error instanceof VwCommandError &&
-        !/no correlationId|failed \(5\d\d\)/.test(error.message);
+        error instanceof VwBusyError ||
+        (error instanceof VwCommandError &&
+          !/no correlationId|failed \(5\d\d\)/.test(error.message));
       command = this.repository.update(command.id, {
         status:
           error instanceof CommandDeadline && accepted
@@ -308,22 +411,25 @@ export class NodeLockCommands {
               : "failed",
         completedAt: this.options.now(),
         failureCode:
-          error instanceof AccountChanged
-            ? "account_changed"
-            : error instanceof CommandDeadline
-              ? accepted
-                ? "confirmation_timeout"
-                : submitted
-                  ? "submission_uncertain"
-                  : "preparation_failed"
-              : !submitted
-                ? "preparation_failed"
-                : explicitRejection
-                  ? "vw_rejected"
-                  : "submission_uncertain",
+          error instanceof VwBusyError
+            ? "vehicle_busy"
+            : error instanceof AccountChanged
+              ? "account_changed"
+              : error instanceof CommandDeadline
+                ? accepted
+                  ? "confirmation_timeout"
+                  : submitted
+                    ? "submission_uncertain"
+                    : "preparation_failed"
+                : !submitted
+                  ? "preparation_failed"
+                  : explicitRejection
+                    ? "vw_rejected"
+                    : "submission_uncertain",
       });
     } finally {
       if (timer !== undefined) clearTimeout(timer);
+      applyCampResult(this.storage, command, this.options.now());
       console.log(
         JSON.stringify({
           event: "lock_command",
@@ -342,6 +448,27 @@ export class NodeLockCommands {
     device: AuthorizedDevice,
   ): PassiveResponse | null {
     const url = new URL(target, "https://local.invalid");
+    const campMatch =
+      /^\/api\/v1\/vehicles\/([0-9a-f-]{36})\/climate-session$/.exec(
+        url.pathname,
+      );
+    if (campMatch?.[1] !== undefined) {
+      const accountId = this.linkedAccount();
+      if (
+        method !== "GET" ||
+        url.search !== "" ||
+        accountId === null ||
+        this.vehicles.getVehicle(campMatch[1])?.accountId !== accountId
+      )
+        return failure(404, "not_found");
+      return {
+        status: 200,
+        body: {
+          session: campFor(this.storage, campMatch[1]),
+          schedulerEnabled: this.schedulerEnabled,
+        },
+      };
+    }
     if (
       url.pathname !== "/api/v1/commands" &&
       !url.pathname.startsWith("/api/v1/commands/")
@@ -356,7 +483,7 @@ export class NodeLockCommands {
       } catch {
         return failure(400, "invalid_request");
       }
-      const parsed = lockRequestSchema.safeParse(input);
+      const parsed = controlRequestSchema.safeParse(input);
       if (!parsed.success) return failure(400, "invalid_request");
       const accountId = this.linkedAccount();
       const vehicle = this.vehicles.getVehicle(parsed.data.vehicleId);
@@ -369,6 +496,9 @@ export class NodeLockCommands {
           device.id,
           device.pubkey,
           this.options.now(),
+          (c) => {
+            prepareCamp(this.storage, c, this.options.now());
+          },
         );
         if (result.created) this.schedule(result.command, true);
         return {
@@ -403,7 +533,7 @@ export class NodeLockCommands {
       if (
         command.status === "confirmed" ||
         command.status === "failed" ||
-        command.correlationId === null
+        (command.correlationId === null && command.acceptedAt === null)
       )
         return { status: 200, body: this.receipt(command) };
       const active = this.storage.db

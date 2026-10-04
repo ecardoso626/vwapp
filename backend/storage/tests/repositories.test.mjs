@@ -40,8 +40,10 @@ test("history records meaningful changes, not every identical fetch", (t) => {
   first.battery.socPercent = 60;
   first.battery.estimatedRangeKm = 300;
   first.odometerKm = 12_345;
+  first.climate.fetchedAt = base;
   const unchanged = globalThis.structuredClone(first);
   unchanged.freshness.fetchedAt += 60_000;
+  unchanged.climate.fetchedAt += 60_000;
   const changed = globalThis.structuredClone(unchanged);
   changed.freshness.fetchedAt += 60_000;
   changed.battery.socPercent = 59;
@@ -69,6 +71,10 @@ test("history records meaningful changes, not every identical fetch", (t) => {
       .listObservations("synthetic-vehicle")
       .map((row) => row.state.battery.socPercent),
     [60, 59],
+  );
+  assert.equal(
+    vehicles.getCurrentState("synthetic-vehicle").state.climate.fetchedAt,
+    base + 60_000,
   );
   const later = globalThis.structuredClone(changed);
   later.freshness.fetchedAt += 15 * 60_000;

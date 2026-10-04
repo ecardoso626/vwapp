@@ -38,6 +38,7 @@ export const vehicleStateSchema = z.object({
     unlockedDoors: z.array(z.string()).nullable(),
   }),
   climate: z.object({
+    fetchedAt: z.number().optional(),
     activity: z.enum(["active", "inactive", "unknown"]),
     targetTempF: knownNumber,
     remainingMin: knownNumber,

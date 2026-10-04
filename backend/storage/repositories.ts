@@ -175,6 +175,7 @@ export class VehicleRepository {
       json({
         ...normalized,
         freshness: { ...normalized.freshness, fetchedAt: null },
+        climate: { ...normalized.climate, fetchedAt: null },
       }),
     );
     const fetchedAt = normalized.freshness.fetchedAt;

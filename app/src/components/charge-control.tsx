@@ -1,8 +1,6 @@
 import type { PassiveSnapshot } from "@/hooks/use-passive-data";
-import { useTransientError } from "@/hooks/use-transient-error";
-import { useLegacyControlGate } from "@/providers/legacy-control-provider";
+import { useVehicleControl } from "@/hooks/use-vehicle-control";
 import { useThemeToggle } from "@/providers/theme-provider";
-import { orpc } from "@/rpc";
 import { formatMiles } from "@/units";
 import { Gauge, Host, Text as NativeText, Picker } from "@expo/ui/swift-ui";
 import {
@@ -12,17 +10,8 @@ import {
   tag,
   tint,
 } from "@expo/ui/swift-ui/modifiers";
-import { useMutation } from "@tanstack/react-query";
-import {
-  AnimatePresence,
-  H2,
-  Paragraph,
-  Spinner,
-  Text,
-  useTheme,
-  XStack,
-  YStack,
-} from "tamagui";
+import { H2, Paragraph, Spinner, useTheme, XStack, YStack } from "tamagui";
+import { ControlFeedback } from "./control-feedback";
 import { IosButton, IosCard } from "./ios-list";
 import { SfIcon } from "./sf-icon";
 
@@ -38,20 +27,17 @@ const LIMITS = [50, 60, 70, 80, 90, 100];
  */
 export function ChargeControl({
   s,
-  uuid,
+  vehicleId,
 }: {
   s: PassiveSnapshot;
-  uuid: string;
+  vehicleId: string;
 }) {
   // The native picker/gauge need a resolved scheme to follow the in-app theme.
-  const { allowed } = useLegacyControlGate(uuid);
+  const control = useVehicleControl(vehicleId, "charging");
+  const allowed = control.canSend;
   const { pref } = useThemeToggle();
   const theme = useTheme();
-  const start = useMutation(orpc.vehicle.chargeStart.mutationOptions());
-  const stop = useMutation(orpc.vehicle.chargeStop.mutationOptions());
-  // The saved value arrives via the snapshot live query (the RPC writes a
-  // fresh snapshot before resolving), so the row tracks the car.
-  const setLimit = useMutation(orpc.vehicle.setChargeLimit.mutationOptions());
+  const pending = control.send.isPending;
 
   const carLimit = s.targetSoc ?? null;
   // The car can report an off-grid limit (set from its own screen); without a
@@ -64,7 +50,6 @@ export function ChargeControl({
   const charging = isCharging(s);
   // Can start only when plugged in and not already charging.
   const canStart = s.pluggedIn === true && !charging;
-  const error = useTransientError(start.error ?? stop.error ?? setLimit.error);
 
   return (
     <IosCard p="$4" gap="$3.5">
@@ -115,21 +100,23 @@ export function ChargeControl({
         {charging ? (
           <IosButton
             tone="red"
-            disabled={!allowed || stop.isPending}
+            disabled={!allowed || pending}
             onPress={() => {
-              if (allowed) stop.mutate({ uuid });
+              if (allowed)
+                control.send.mutate({ vehicleId, action: "charge_stop" });
             }}
-            label={stop.isPending ? "Stopping…" : "Stop"}
+            label={pending ? "Stopping…" : "Stop"}
           />
         ) : canStart ? (
           <IosButton
             tone="green"
             icon="bolt.car.fill"
-            disabled={!allowed || start.isPending}
+            disabled={!allowed || pending}
             onPress={() => {
-              if (allowed) start.mutate({ uuid });
+              if (allowed)
+                control.send.mutate({ vehicleId, action: "charge_start" });
             }}
-            label={start.isPending ? "Starting…" : "Charge"}
+            label={pending ? "Starting…" : "Charge"}
           />
         ) : null}
       </XStack>
@@ -138,19 +125,23 @@ export function ChargeControl({
       <XStack items="center" justify="space-between">
         <Paragraph color="$color10">Charge limit</Paragraph>
         <XStack items="center" gap="$2">
-          {setLimit.isPending ? <Spinner color="$color10" /> : null}
+          {pending ? <Spinner color="$color10" /> : null}
           {carLimit !== null ? (
             <Host matchContents colorScheme={pref}>
               <Picker
                 selection={carLimit}
                 onSelectionChange={(next) => {
-                  if (allowed && next !== carLimit && !setLimit.isPending) {
-                    setLimit.mutate({ uuid, targetSoc: next });
+                  if (allowed && next !== carLimit && !pending) {
+                    control.send.mutate({
+                      vehicleId,
+                      action: "charge_target",
+                      targetSoc: next,
+                    });
                   }
                 }}
                 modifiers={[
                   pickerStyle("menu"),
-                  disabledModifier(!allowed || setLimit.isPending),
+                  disabledModifier(!allowed || pending),
                 ]}
               >
                 {limitOptions.map((v) => (
@@ -168,22 +159,7 @@ export function ChargeControl({
         </XStack>
       </XStack>
 
-      <AnimatePresence>
-        {error ? (
-          <Text
-            key="charge-error"
-            selectable
-            color="$red10"
-            fontSize="$2"
-            transition="quick"
-            animateOnly={["opacity"]}
-            enterStyle={{ opacity: 0 }}
-            exitStyle={{ opacity: 0 }}
-          >
-            {error.message}
-          </Text>
-        ) : null}
-      </AnimatePresence>
+      <ControlFeedback control={control} />
     </IosCard>
   );
 }

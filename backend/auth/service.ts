@@ -27,7 +27,9 @@ export function classifyEndpoint(method: string, path: string): EndpointClass {
     method === "GET" &&
     (PASSIVE_READ_PATHS.has(path) ||
       /^\/api\/v1\/commands\/(key\/)?[0-9a-f-]{36}$/.test(path) ||
-      /^\/api\/v1\/vehicles\/[0-9a-f-]{36}\/(current|history)$/.test(path))
+      /^\/api\/v1\/vehicles\/[0-9a-f-]{36}\/(current|history|climate-session)$/.test(
+        path,
+      ))
   )
     return "read";
   if (method === "PATCH" && /^\/api\/v1\/messages\/[^/]+$/.test(path))

@@ -92,3 +92,7 @@ The esbuild tool is build-time only and has supported Linux ARM64 binaries in
 the lockfile; the bundled runtime uses Node standard APIs and the existing
 JavaScript dependencies. A future container must supply configuration and
 secrets through its environment or mounted secret files.
+
+## Current control and climate job
+
+The Node runtime now retires old control RPC aliases and serves all default mobile controls via the signed shared command ledger. Its opt-in climate job invokes persisted Node Camp orchestration, not the legacy Worker keepalive. Startup sends no VW traffic, and scheduler defaults remain disabled. Cached session/receipt reads do not invoke VW. Worker/Instant infrastructure remains only for older clients/rollback and later removal. See [CONTROL_CUTOVER.md](CONTROL_CUTOVER.md).

@@ -249,4 +249,50 @@ CREATE UNIQUE INDEX one_active_lock_command ON commands(vehicle_id)
 WHERE idempotency_key IS NOT NULL AND status IN ('requested','submitting','accepted','waiting_for_vehicle');
 `,
   },
+  {
+    version: 6,
+    name: "control_command_evidence",
+    sql: `
+PRAGMA defer_foreign_keys = ON;
+CREATE TABLE commands_new (
+  id TEXT PRIMARY KEY,
+  vehicle_id TEXT NOT NULL REFERENCES vehicles(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL CHECK(kind IN ('lock','unlock','charge_start','charge_stop','charge_target','climate_start','climate_stop','climate_temperature','wake')),
+  status TEXT NOT NULL CHECK(status IN ('requested','submitting','accepted','waiting_for_vehicle','confirmed','failed','timed_out','unknown','unconfirmed','cancelled')),
+  requested_at INTEGER NOT NULL, accepted_at INTEGER, completed_at INTEGER,
+  correlation_id TEXT, failure_code TEXT, failure_reason TEXT, requesting_device_id TEXT,
+  account_id TEXT REFERENCES accounts(id) ON DELETE CASCADE,
+  idempotency_key TEXT, requesting_pubkey TEXT, submitted_at INTEGER,
+  history_confirmed INTEGER CHECK(history_confirmed IN (0,1)),
+  observed_lock TEXT CHECK(observed_lock IN ('locked','unlocked','unknown')),
+  observed_fetched_at INTEGER, observed_source_at INTEGER,
+  confirmation_rounds INTEGER NOT NULL DEFAULT 0, status_reads INTEGER NOT NULL DEFAULT 0,
+  request_payload TEXT CHECK(request_payload IS NULL OR json_valid(request_payload)),
+  execution_stage TEXT, evidence_basis TEXT,
+  evidence_payload TEXT CHECK(evidence_payload IS NULL OR json_valid(evidence_payload)),
+  baseline_source_at INTEGER,
+  CHECK(accepted_at IS NULL OR accepted_at >= requested_at),
+  CHECK(completed_at IS NULL OR completed_at >= requested_at),
+  UNIQUE(requesting_device_id, idempotency_key)
+) STRICT;
+INSERT INTO commands_new SELECT *, NULL, NULL, NULL, NULL, NULL FROM commands;
+DROP TABLE commands;
+ALTER TABLE commands_new RENAME TO commands;
+CREATE INDEX commands_by_vehicle_time ON commands(vehicle_id, requested_at DESC);
+CREATE INDEX commands_by_correlation ON commands(vehicle_id, correlation_id);
+CREATE UNIQUE INDEX one_active_lock_command ON commands(vehicle_id)
+WHERE idempotency_key IS NOT NULL AND status IN ('requested','submitting','accepted','waiting_for_vehicle');
+`,
+  },
+  {
+    version: 7,
+    name: "durable_camp_lifecycle",
+    sql: `
+ALTER TABLE climate_sessions ADD COLUMN control_state TEXT NOT NULL DEFAULT 'inactive';
+ALTER TABLE climate_sessions ADD COLUMN command_id TEXT REFERENCES commands(id) ON DELETE SET NULL;
+ALTER TABLE climate_sessions ADD COLUMN requesting_device_id TEXT;
+ALTER TABLE climate_sessions ADD COLUMN cycle INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE climate_sessions ADD COLUMN automation_enabled INTEGER NOT NULL DEFAULT 0 CHECK(automation_enabled IN (0,1));
+`,
+  },
 ];

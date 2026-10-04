@@ -1,6 +1,5 @@
 import { IosGroup, IosRow } from "@/components/ios-list";
 import { useThemeToggle } from "@/providers/theme-provider";
-import { API_URL } from "@/rpc";
 import { Host, Toggle } from "@expo/ui/swift-ui";
 import Constants from "expo-constants";
 import { Stack } from "expo-router";
@@ -43,7 +42,7 @@ export default function SettingsScreen() {
           <IosRow
             label="API host"
             value={
-              API_URL?.replace(/\/rpc\/?$/, "") ?? "Controls not configured"
+              process.env.EXPO_PUBLIC_NODE_ORIGIN ?? "BuzzKey not configured"
             }
           />
           <IosRow

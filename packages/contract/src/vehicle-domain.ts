@@ -41,6 +41,8 @@ export interface VehicleSecurityState {
 }
 
 export interface ClimateState {
+  /** Local time of the separate climate/settings observation, not source capture. */
+  fetchedAt?: number | undefined;
   activity: "active" | "inactive" | "unknown";
   targetTempF: Known<number>;
   remainingMin: Known<number>;
@@ -83,7 +85,8 @@ export type VehicleCommandKind =
   | "charge_target"
   | "climate_start"
   | "climate_stop"
-  | "climate_temperature";
+  | "climate_temperature"
+  | "wake";
 
 /** Submission/acceptance is separate from observed state and execution confirmation. */
 export interface CommandSubmission {

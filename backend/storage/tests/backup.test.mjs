@@ -25,7 +25,7 @@ test("WAL-safe backup reopens with state, history and correct external key", asy
   assert.equal(restored.integrityCheck(), true);
   assert.deepEqual(
     migrationStatus(restored.db).map((row) => row.version),
-    [1, 2, 3, 4, 5],
+    [1, 2, 3, 4, 5, 6, 7],
   );
   assert.equal(
     new VehicleRepository(restored).getCurrentState("synthetic-vehicle").state

@@ -60,3 +60,7 @@ Any future live data import must map InstantDB account/vehicle IDs, sessions, me
 ## Migration 5 — durable lock ledger
 
 Phase 8B extends the existing `commands` table without altering applied migrations 1–4. Existing command rows/columns are preserved. Added fields capture account, device/public key, client key, submitting timestamp, history/observation evidence and counters; expanded statuses support submitting/waiting/timed_out/unknown. Device/key uniqueness persists across restart; a partial unique index permits one active new command per vehicle. Startup recovers interrupted stages without network traffic or PUT resubmission. Keys and records have no automatic expiry; account/vehicle cascades or restoring old backups can remove deduplication evidence. See [lock control cutover](LOCK_CONTROL_CUTOVER.md).
+
+## Migrations 6–7 — shared controls and Camp lifecycle
+
+Migration 6 preserves all version-5 command columns/rows and adds typed request JSON, execution stage, category evidence/basis and wake baseline. Migration 7 adds Camp control state, command relation, device, cycle and automation eligibility. Applied versions 1–5 are unchanged. Existing sessions survive with automation off; commands retain their device/key uniqueness and one-active-command constraint. Pending stages remain queryable across restart and are never blindly resubmitted. The default mobile app now uses Node cache/session APIs rather than Instant subscriptions. See [CONTROL_CUTOVER.md](CONTROL_CUTOVER.md).

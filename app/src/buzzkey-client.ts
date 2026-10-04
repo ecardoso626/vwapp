@@ -5,6 +5,12 @@ import {
   type AccountConnection,
 } from "@vwapp/contract/account";
 import {
+  campResponseSchema,
+  controlCommandSchema,
+  type ControlCommand,
+  type ControlRequest,
+} from "@vwapp/contract/control";
+import {
   lockCommandSchema,
   type LockCommand,
   type LockRequest,
@@ -151,6 +157,36 @@ export function createBuzzKeyClient(options: BuzzKeyClientOptions) {
         name,
       });
       return parse(passivePairedSchema, result);
+    },
+    async camp(vehicleId: string) {
+      return parse(
+        campResponseSchema,
+        await request(
+          `/api/v1/vehicles/${encodeURIComponent(vehicleId)}/climate-session`,
+        ),
+      );
+    },
+    async requestControl(input: ControlRequest): Promise<ControlCommand> {
+      return parse(
+        controlCommandSchema,
+        await request("/api/v1/commands", "POST", input),
+      );
+    },
+    async commandByKey(key: string): Promise<ControlCommand> {
+      return parse(
+        controlCommandSchema,
+        await request(`/api/v1/commands/key/${encodeURIComponent(key)}`),
+      );
+    },
+    async reconcileCommand(id: string): Promise<ControlCommand> {
+      return parse(
+        controlCommandSchema,
+        await request(
+          `/api/v1/commands/${encodeURIComponent(id)}/reconcile`,
+          "POST",
+          {},
+        ),
+      );
     },
     async requestLock(input: LockRequest): Promise<LockCommand> {
       return parse(

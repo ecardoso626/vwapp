@@ -4,19 +4,15 @@ import { agoLabel, useNow } from "@/hooks/use-now";
 import { useFirstPassiveVehicle } from "@/hooks/use-passive-data";
 import { useIosColors } from "@/ios-colors";
 import { useThemeToggle } from "@/providers/theme-provider";
-import { orpc } from "@/rpc";
-import { useQuery } from "@tanstack/react-query";
 import { Stack } from "expo-router";
 import type { ReactNode } from "react";
 import {
   ActionSheetIOS,
   Alert,
-  Image,
   Linking,
   Platform,
   Pressable,
   ScrollView,
-  useWindowDimensions,
 } from "react-native";
 import { Paragraph, Spinner, Text, YStack } from "tamagui";
 
@@ -113,54 +109,28 @@ function MapBox({ children }: { children?: ReactNode }) {
 }
 
 /**
- * Inline map: a static Apple Maps snapshot the Worker signs server-side (no
- * native map module, so it renders identically in Expo Go and production).
- * Tapping it offers Apple/Google Maps via a native action sheet. The signed
- * URL carries a time-boxed MapKit token, so we cache it for under the token's
- * lifetime and let it refetch (re-sign) after — the query key (coords + theme)
- * also busts it whenever the location or appearance changes.
+ * Coordinate placeholder for the future native map. No Worker signing or hosted preview request.
  */
 function MapPanel({ lat, lng }: { lat: number; lng: number }) {
   const { pref } = useThemeToggle();
-  const { width } = useWindowDimensions();
-  const widthPt = Math.min(640, Math.max(100, Math.round(width - 32)));
-  const map = useQuery({
-    ...orpc.vehicle.parkedMapUrl.queryOptions({
-      input: { lat, lng, widthPt, heightPt: MAP_HEIGHT, dark: pref === "dark" },
-    }),
-    staleTime: 25 * 60 * 1000, // < the backend's 30-min token TTL
-  });
-
   return (
     <Pressable
+      accessibilityRole="button"
+      accessibilityLabel="Open parked location in Maps"
       onPress={() => {
         chooseMapsApp(lat, lng, pref);
       }}
-      accessibilityRole="button"
-      accessibilityLabel="Open parked location in Maps"
-      style={({ pressed }) => ({ opacity: pressed ? 0.85 : 1 })}
     >
       <YStack height={MAP_HEIGHT} rounded={10} overflow="hidden">
-        {map.data?.url != null ? (
-          <Image
-            source={{ uri: map.data.url }}
-            style={{ flex: 1 }}
-            resizeMode="cover"
-          />
-        ) : (
-          <MapBox>
-            {map.isError || map.data?.url === null ? (
-              <>
-                <SfIcon name="map" color="$color10" size={28} />
-                <Paragraph color="$color10" fontSize="$2">
-                  Map preview unavailable
-                </Paragraph>
-              </>
-            ) : (
-              <Spinner color="$color10" />
-            )}
-          </MapBox>
-        )}
+        <MapBox>
+          <SfIcon name="map" color="$color10" size={28} />
+          <Paragraph color="$color10">
+            {lat.toFixed(5)}, {lng.toFixed(5)}
+          </Paragraph>
+          <Paragraph color="$color10" fontSize="$2">
+            Open parked location in Maps. Native preview is planned.
+          </Paragraph>
+        </MapBox>
       </YStack>
     </Pressable>
   );

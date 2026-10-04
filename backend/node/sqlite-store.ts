@@ -392,6 +392,8 @@ export class NodeSqliteStore implements SqliteApplicationStore {
       status,
       now,
     );
+    const priorDomain = this.vehicles.getCurrentState(vehicleId);
+    if (priorDomain !== null) domain.climate = priorDomain.state.climate;
     this.storage.transaction(() => {
       this.storage.db
         .prepare(

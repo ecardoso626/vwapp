@@ -10,7 +10,7 @@ test("empty database migrates to latest version with foreign keys enabled", (t) 
   const status = migrationStatus(store.db);
   assert.deepEqual(
     status.map((row) => row.version),
-    [1, 2, 3, 4, 5],
+    [1, 2, 3, 4, 5, 6, 7],
   );
   assert.equal(status[0].name, "initial_storage_foundation");
   assert.equal(status[1].name, "owner_device_authentication");
@@ -39,7 +39,7 @@ test("failing migration rolls back its tables and ledger entry", (t) => {
   assert.throws(() => applyMigrations(store.db, broken));
   assert.deepEqual(
     migrationStatus(store.db).map((row) => row.version),
-    [1, 2, 3, 4, 5],
+    [1, 2, 3, 4, 5, 6, 7],
   );
   assert.equal(
     store.db
@@ -87,7 +87,7 @@ test("version 4 upgrades an existing owner link without deleting accounts or pre
   );
   assert.deepEqual(
     migrationStatus(db).map((row) => row.version),
-    [1, 2, 3, 4, 5],
+    [1, 2, 3, 4, 5, 6, 7],
   );
 });
 
@@ -113,5 +113,37 @@ test("version 5 preserves existing command rows and immutable migration ledger",
   assert.equal(upgraded.submitted_at, null);
   assert.equal(upgraded.confirmation_rounds, 0);
   assert.deepEqual(migrationStatus(db).slice(0, 4), ledger);
+  assert.equal(db.prepare("PRAGMA foreign_key_check").get(), undefined);
+});
+
+test("control migrations preserve v5 accepted idempotency evidence and legacy climate without enabling automation", (t) => {
+  const db = new DatabaseSync(":memory:");
+  t.after(() => db.close());
+  db.exec("PRAGMA foreign_keys=ON");
+  applyMigrations(db, MIGRATIONS.slice(0, 5));
+  const ledger = migrationStatus(db);
+  db.exec(`
+    INSERT INTO accounts(id,created_at) VALUES ('synthetic-account',0);
+    INSERT INTO vehicles(id,account_id,reference,vin,created_at) VALUES ('synthetic-vehicle','synthetic-account','synthetic-ref','SYNTHETICVIN',0);
+    INSERT INTO commands(id,vehicle_id,kind,status,requested_at,accepted_at,account_id,requesting_device_id,idempotency_key,requesting_pubkey,submitted_at,correlation_id,history_confirmed,observed_lock,observed_fetched_at,observed_source_at,confirmation_rounds,status_reads)
+    VALUES ('synthetic-command','synthetic-vehicle','unlock','accepted',10,20,'synthetic-account','synthetic-device','synthetic-key','synthetic-pubkey',15,'synthetic-correlation',1,'locked',25,24,2,3);
+    INSERT INTO climate_sessions(id,vehicle_id,temp_f,expires_at,started_at,state,paused_at,error) VALUES ('synthetic-session','synthetic-vehicle',72,1000,10,'active',30,'synthetic-pause');
+  `);
+  const command = db.prepare("SELECT * FROM commands").get();
+  const session = db.prepare("SELECT * FROM climate_sessions").get();
+  applyMigrations(db);
+  const upgraded = db.prepare("SELECT * FROM commands").get();
+  const camp = db.prepare("SELECT * FROM climate_sessions").get();
+  for (const [k, v] of Object.entries(command)) assert.equal(upgraded[k], v);
+  for (const [k, v] of Object.entries(session)) assert.equal(camp[k], v);
+  assert.equal(camp.automation_enabled, 0);
+  assert.equal(camp.command_id, null);
+  assert.deepEqual(migrationStatus(db).slice(0, 5), ledger);
+  db.prepare("UPDATE climate_sessions SET command_id=?").run(command.id);
+  db.prepare("DELETE FROM commands WHERE id=?").run(command.id);
+  assert.equal(
+    db.prepare("SELECT command_id FROM climate_sessions").get().command_id,
+    null,
+  );
   assert.equal(db.prepare("PRAGMA foreign_key_check").get(), undefined);
 });

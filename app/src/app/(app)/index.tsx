@@ -10,7 +10,6 @@ import {
 } from "@/hooks/use-passive-data";
 import { useTransientError } from "@/hooks/use-transient-error";
 import { useIosColors } from "@/ios-colors";
-import { useLegacyControlGate } from "@/providers/legacy-control-provider";
 import { useLoginFlow } from "@/providers/login-flow";
 import { useSession } from "@/providers/session-provider";
 import { formatMiles } from "@/units";
@@ -40,7 +39,6 @@ export default function Dashboard() {
   } = useSession();
 
   const { vehiclesQuery, vehicle, snapshot } = useFirstPassiveVehicle();
-  const { allowed, reason } = useLegacyControlGate(vehicle?.uuid);
   const { setAttempt } = useLoginFlow();
   const isLoading = vehiclesQuery.isLoading;
   // A failed server logout must be visible too — otherwise tapping "Sign out"
@@ -166,7 +164,6 @@ export default function Dashboard() {
             }}
           />
         ) : null}
-        {!allowed ? <Paragraph color="$color10">{reason}</Paragraph> : null}
         {vehicle !== undefined ? (
           <Text selectable style={{ color: ios.secondaryLabel, fontSize: 13 }}>
             {vehicle.vin}
@@ -240,12 +237,11 @@ export default function Dashboard() {
             fetchedAt={snapshot?.fetchedAt ?? 0}
           />
         ) : null}
+        {vehicle !== undefined ? (
+          <ClimateControl vehicleId={vehicle.id} />
+        ) : null}
         {snapshot !== undefined && vehicle !== undefined ? (
-          <StatusCards
-            s={snapshot}
-            uuid={vehicle.uuid}
-            controlsEnabled={allowed}
-          />
+          <StatusCards sVehicleId={vehicle.id} s={snapshot} />
         ) : null}
       </ScrollView>
     </>
@@ -253,13 +249,11 @@ export default function Dashboard() {
 }
 
 function StatusCards({
+  sVehicleId,
   s,
-  uuid,
-  controlsEnabled,
 }: {
   s: PassiveSnapshot;
-  uuid: string;
-  controlsEnabled: boolean;
+  sVehicleId: string;
 }) {
   // Snapshots only re-render this on arrival; tick so "Xm ago" stays honest.
   const now = useNow();
@@ -281,25 +275,7 @@ function StatusCards({
           Cached vehicle status may be stale.
         </Paragraph>
       ) : null}
-      {controlsEnabled ? (
-        <>
-          <ChargeControl s={s} uuid={uuid} />
-          <ClimateControl uuid={uuid} />
-        </>
-      ) : (
-        <IosCard p="$4" gap="$2">
-          <Paragraph color="$color10">
-            Charging, climate and wake still use the legacy Worker account.
-          </Paragraph>
-          <IosButton
-            tone="blue"
-            label="Connect VW on BuzzKey"
-            onPress={() => {
-              router.push("/login");
-            }}
-          />
-        </IosCard>
-      )}
+      <ChargeControl s={s} vehicleId={sVehicleId} />
       <IosGroup>
         <IosRow label="Odometer" value={formatMiles(s.odometerKm)} />
         <IosRow
