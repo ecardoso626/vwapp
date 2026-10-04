@@ -4,6 +4,15 @@ import { EventEmitter } from "node:events";
 import { request } from "node:http";
 import { test } from "node:test";
 import { setImmediate } from "node:timers";
+import { DeviceRepository } from "../../auth/devices.ts";
+import { DeviceAuthService } from "../../auth/service.ts";
+import {
+  nowMs,
+  origin,
+  pubkeyA,
+  signedRequest,
+} from "../../auth/tests/helper.mjs";
+import { SqliteStorage } from "../../storage/database.ts";
 import { loadNodeConfig } from "../config.ts";
 import { createNodeRuntime, installShutdownSignals } from "../runtime.ts";
 import { createNodeScheduler, POLL_INTERVAL_MS } from "../scheduler.ts";
@@ -11,6 +20,8 @@ import { createNodeScheduler, POLL_INTERVAL_MS } from "../scheduler.ts";
 const syntheticEnv = {
   NODE_HOST: "127.0.0.1",
   NODE_PORT: "0",
+  NODE_PUBLIC_ORIGIN: origin,
+  BUZZKEY_SQLITE_PATH: ":memory:",
   INSTANT_APP_ID: "synthetic-instant-app",
   INSTANT_ADMIN_TOKEN: "synthetic-admin-token",
   CREDS_ENC_KEY: Buffer.alloc(32, 7).toString("base64"),
@@ -49,12 +60,27 @@ function deferred() {
   return { promise, resolve };
 }
 const settle = () => new Promise((resolve) => setImmediate(resolve));
-function localRequest(port, path, { method = "GET", token, body } = {}) {
+function localRequest(
+  port,
+  path,
+  { method = "GET", token, body, authorization } = {},
+) {
   return new Promise((resolve, reject) => {
     const payload =
       body === undefined ? undefined : JSON.stringify({ json: body });
     const headers = {
-      ...(token === undefined ? {} : { authorization: `Bearer ${token}` }),
+      ...(token === undefined ? {} : { "x-instant-token": token }),
+      ...(authorization === undefined && token === undefined
+        ? {}
+        : {
+            authorization:
+              authorization ??
+              signedRequest({
+                method,
+                target: path,
+                body: Buffer.from(payload ?? ""),
+              }).request.authorization,
+          }),
       ...(payload === undefined ? {} : { "content-type": "application/json" }),
     };
     const req = request(
@@ -73,8 +99,12 @@ function localRequest(port, path, { method = "GET", token, body } = {}) {
 }
 function fakeServices() {
   let verifications = 0;
+  const storage = SqliteStorage.open(":memory:");
+  const devices = new DeviceRepository(storage);
+  devices.pair(devices.issuePairing(nowMs), pubkeyA, "Synthetic iPhone", nowMs);
   return {
     services: {
+      auth: new DeviceAuthService(devices, origin, () => nowMs),
       db: {
         auth: {
           async verifyToken(token) {
@@ -98,6 +128,8 @@ test("validated config separates required secrets from optional Node settings", 
   const config = loadNodeConfig(syntheticEnv, "test");
   assert.equal(config.host, "127.0.0.1");
   assert.equal(config.port, 0);
+  assert.equal(config.publicOrigin, origin);
+  assert.equal(config.sqlitePath, ":memory:");
   assert.equal(config.schedulerEnabled, false);
   assert.equal(
     loadNodeConfig({ ...syntheticEnv, NODE_SCHEDULER_ENABLED: "true" }, "test")
@@ -130,6 +162,23 @@ test("invalid config fails clearly without printing secret values", () => {
   assert.throws(
     () => loadNodeConfig(syntheticEnv),
     /NODE_PORT must be nonzero/,
+  );
+  assert.throws(
+    () => loadNodeConfig({ ...syntheticEnv, NODE_PORT: "8788" }),
+    /persistent BUZZKEY_SQLITE_PATH required/,
+  );
+  assert.throws(
+    () =>
+      loadNodeConfig(
+        {
+          ...syntheticEnv,
+          NODE_PORT: "8788",
+          BUZZKEY_SQLITE_PATH: "/tmp/test.db",
+          NODE_PUBLIC_ORIGIN: "http://buzzkey.test",
+        },
+        "production",
+      ),
+    /NODE_PUBLIC_ORIGIN/,
   );
 });
 test("scheduler starts at one-minute cadence and never overlaps ticks", async () => {
@@ -232,7 +281,16 @@ test("Node server starts; health and unknown paths are safe", async () => {
     assert.equal(health.status, 200);
     assert.deepEqual(JSON.parse(health.text), { status: "ok" });
     assert.doesNotMatch(health.text, /synthetic-admin-token|CREDS_ENC_KEY/);
-    assert.equal((await localRequest(port, "/missing")).status, 404);
+    assert.equal((await localRequest(port, "/missing")).status, 401);
+    assert.equal(
+      (
+        await localRequest(port, "/missing", {
+          authorization: signedRequest({ target: "/missing" }).request
+            .authorization,
+        })
+      ).status,
+      404,
+    );
     assert.equal(mocks.verifications, 0);
   } finally {
     await runtime.stop();

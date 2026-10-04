@@ -111,4 +111,35 @@ CREATE TABLE account_secrets (
 ) STRICT;
 `,
   },
+  {
+    version: 2,
+    name: "owner_device_authentication",
+    sql: `
+CREATE TABLE authorized_devices (
+  id TEXT PRIMARY KEY,
+  pubkey TEXT NOT NULL UNIQUE CHECK(length(pubkey) = 64),
+  name TEXT NOT NULL CHECK(length(name) BETWEEN 1 AND 64),
+  paired_at INTEGER NOT NULL,
+  last_used_at INTEGER,
+  revoked_at INTEGER
+) STRICT;
+
+CREATE TABLE pairing_sessions (
+  token_hash TEXT PRIMARY KEY CHECK(length(token_hash) = 64),
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL CHECK(expires_at > created_at),
+  consumed_at INTEGER,
+  CHECK(consumed_at IS NULL OR consumed_at >= created_at)
+) STRICT;
+CREATE INDEX pairing_sessions_by_expiry ON pairing_sessions(expires_at);
+
+CREATE TABLE auth_replay_events (
+  event_id TEXT PRIMARY KEY CHECK(length(event_id) = 64),
+  device_id TEXT NOT NULL REFERENCES authorized_devices(id) ON DELETE RESTRICT,
+  consumed_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL CHECK(expires_at >= consumed_at)
+) STRICT;
+CREATE INDEX auth_replay_events_by_expiry ON auth_replay_events(expires_at);
+`,
+  },
 ];

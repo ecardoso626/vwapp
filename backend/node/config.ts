@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { validatePublicOrigin } from "../auth/nip98";
 import type { AppEnv } from "../src/env";
 
 export interface NodeConfig {
@@ -6,6 +7,8 @@ export interface NodeConfig {
   port: number;
   /** Off by default while the Worker may still be polling the same account. */
   schedulerEnabled: boolean;
+  publicOrigin: string;
+  sqlitePath: string;
   env: AppEnv;
 }
 
@@ -13,6 +16,8 @@ const schema = z.object({
   NODE_HOST: z.string().min(1).default("127.0.0.1"),
   NODE_PORT: z.coerce.number().int().min(0).max(65535).default(8788),
   NODE_SCHEDULER_ENABLED: z.enum(["true", "false"]).default("false"),
+  NODE_PUBLIC_ORIGIN: z.string().min(1),
+  BUZZKEY_SQLITE_PATH: z.string().min(1),
   INSTANT_APP_ID: z.string().min(1),
   INSTANT_ADMIN_TOKEN: z.string().min(1),
   CREDS_ENC_KEY: z
@@ -43,10 +48,19 @@ export function loadNodeConfig(
   const values = parsed.data;
   if (mode === "production" && values.NODE_PORT === 0)
     throw new Error("Invalid Node configuration: NODE_PORT must be nonzero");
+  if (mode === "production" && values.BUZZKEY_SQLITE_PATH === ":memory:")
+    throw new Error(
+      "Invalid Node configuration: persistent BUZZKEY_SQLITE_PATH required",
+    );
   return {
     host: values.NODE_HOST,
     port: values.NODE_PORT,
     schedulerEnabled: values.NODE_SCHEDULER_ENABLED === "true",
+    publicOrigin: validatePublicOrigin(
+      values.NODE_PUBLIC_ORIGIN,
+      mode === "test",
+    ),
+    sqlitePath: values.BUZZKEY_SQLITE_PATH,
     env: {
       INSTANT_APP_ID: values.INSTANT_APP_ID,
       INSTANT_ADMIN_TOKEN: values.INSTANT_ADMIN_TOKEN,

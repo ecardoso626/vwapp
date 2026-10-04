@@ -18,13 +18,16 @@
     "node:build": "esbuild node/main.ts --bundle --platform=node --format=esm --target=node22 --main-fields=module,main --outfile=../dist/node/main.mjs",
     "node:start": "pnpm run node:build && node ../dist/node/main.mjs",
     "node:test": "node --import ./tests/register.mjs --test node/tests/*.test.mjs",
-    "storage:test": "node --import ./tests/register.mjs --test storage/tests/*.test.mjs"
+    "storage:test": "node --import ./tests/register.mjs --test storage/tests/*.test.mjs",
+    "auth:test": "node --import ./tests/register.mjs --test auth/tests/*.test.mjs",
+    "auth:admin:build": "esbuild auth/admin.ts --bundle --platform=node --format=esm --target=node22 --outfile=../dist/node/auth-admin.mjs"
   },
   "dependencies": {
     "@instantdb/admin": "^1.0.52",
     "@orpc/server": "latest",
     "@vwapp/contract": "workspace:*",
     "@vwapp/db": "workspace:*",
+    "nostr-tools": "2.25.2",
     "zod": "^4.4.3"
   },
   "devDependencies": {

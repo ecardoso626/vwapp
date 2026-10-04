@@ -10,9 +10,10 @@ test("empty database migrates to latest version with foreign keys enabled", (t) 
   const status = migrationStatus(store.db);
   assert.deepEqual(
     status.map((row) => row.version),
-    [1],
+    [1, 2],
   );
   assert.equal(status[0].name, "initial_storage_foundation");
+  assert.equal(status[1].name, "owner_device_authentication");
   assert.match(status[0].checksum, /^[a-f0-9]{64}$/);
   assert.equal(store.db.prepare("PRAGMA foreign_keys").get().foreign_keys, 1);
   assert.equal(store.integrityCheck(), true);
@@ -30,7 +31,7 @@ test("failing migration rolls back its tables and ledger entry", (t) => {
   const broken = [
     ...MIGRATIONS,
     {
-      version: 2,
+      version: 3,
       name: "synthetic_failure",
       sql: "CREATE TABLE should_rollback(id INTEGER); SELECT * FROM missing_synthetic_table;",
     },
@@ -38,7 +39,7 @@ test("failing migration rolls back its tables and ledger entry", (t) => {
   assert.throws(() => applyMigrations(store.db, broken));
   assert.deepEqual(
     migrationStatus(store.db).map((row) => row.version),
-    [1],
+    [1, 2],
   );
   assert.equal(
     store.db
