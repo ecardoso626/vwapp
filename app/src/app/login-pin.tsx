@@ -1,48 +1,47 @@
+import { requireBuzzKey } from "@/buzzkey-native";
 import { IosButton } from "@/components/ios-list";
 import { useFocusOnScreen } from "@/hooks/use-focus-on-screen";
 import { useLoginFlow } from "@/providers/login-flow";
-import { orpc } from "@/rpc";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Redirect, useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { H1, Input, Paragraph, Text, YStack } from "tamagui";
 
-/**
- * Step 2 of sign-in: the S-PIN. Credentials were already validated on the
- * previous screen and live in the login-flow context (in memory only). This is
- * the step that actually logs in (auth.login persists the account, always with
- * the S-PIN). Going back or otherwise leaving clears the held credentials, so a
- * cancelled flow leaves the user fully logged out with nothing stored.
- */
+/** Complete the expiring Node account attempt with an in-memory S-PIN. */
 export default function LoginPin() {
   const queryClient = useQueryClient();
   const router = useRouter();
-  const { credentials, clear } = useLoginFlow();
+  const { attempt, setAttempt, clear } = useLoginFlow();
   const [spin, setSpin] = useState("");
+  const [pinNotice, setPinNotice] = useState<string | null>(null);
   const pinRef = useFocusOnScreen();
 
-  // Drop the held credentials whenever we leave this screen — on success the
-  // guard-flip unmounts it (after loggedIn flips, so the redirect below won't
-  // fire), and on a back/cancel it abandons the flow.
+  // Leaving the screen discards only the opaque attempt. The encrypted Node
+  // session remains reusable; no PIN or password is held in this context.
   useEffect(() => clear, [clear]);
 
-  const login = useMutation(
-    orpc.auth.login.mutationOptions({
-      onSuccess: async () => {
-        await queryClient.invalidateQueries();
-        router.replace("/");
-      },
-    }),
-  );
+  const login = useMutation({
+    mutationKey: ["buzzkey", "account-action"],
+    mutationFn: () => requireBuzzKey().connect(attempt?.attemptId ?? "", spin),
+    retry: false,
+    onSuccess: async (result) => {
+      setSpin("");
+      await queryClient.invalidateQueries({ queryKey: ["buzzkey"] });
+      if (result.pending !== null) {
+        setAttempt(result.pending);
+        setPinNotice(
+          "The security PIN could not be confirmed. Check it before trying again.",
+        );
+      } else router.replace("/");
+    },
+  });
 
-  // Reached without validated credentials (e.g. a reload or deep link landing
-  // here): there's nothing to submit — start the flow over.
-  if (credentials === null) return <Redirect href="/login" />;
+  if (attempt === null) return <Redirect href="/login" />;
 
   const canSubmit = /^\d{4,6}$/.test(spin) && !login.isPending;
   const submit = () => {
-    if (canSubmit) login.mutate({ ...credentials, spin });
+    if (canSubmit) login.mutate();
   };
 
   return (
@@ -63,7 +62,10 @@ export default function LoginPin() {
         <H1 size="$9" color="$color">
           Enter PIN
         </H1>
-        <Paragraph color="$color10">Your myVW security PIN.</Paragraph>
+        <Paragraph color="$color10">
+          Your myVW security PIN. If rejected, check the PIN before trying
+          again.
+        </Paragraph>
         {/* textContentType="none": keep iOS from treating this secure field as a
             password and offering to save it as the credential. */}
         <Input
@@ -80,7 +82,7 @@ export default function LoginPin() {
           value={spin}
           onChangeText={setSpin}
         />
-        {login.error ? (
+        {login.error !== null || pinNotice !== null ? (
           <Text
             selectable
             color="$red10"
@@ -88,7 +90,7 @@ export default function LoginPin() {
             animateOnly={["opacity"]}
             enterStyle={{ opacity: 0 }}
           >
-            {login.error.message}
+            {login.error?.message ?? pinNotice}
           </Text>
         ) : null}
         <IosButton

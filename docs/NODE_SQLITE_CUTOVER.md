@@ -1,6 +1,6 @@
 # Phase 6B: Node SQLite application persistence
 
-The Node HTTP runtime now uses SQLite for owner/account, Volkswagen session, vehicle, snapshot, climate-session, and message state. The Cloudflare Worker still uses `backend/src/store.ts` and InstantDB. Phase 7 moved mobile passive reads to Node; its live controls still use InstantDB and the Worker. No live data import, scheduler cutover, deployment, or Volkswagen call was made.
+The Node HTTP runtime now uses SQLite for owner/account, Volkswagen session, vehicle, snapshot, climate-session, and message state. The Cloudflare Worker still uses `backend/src/store.ts` and InstantDB. Phase 7 moved mobile passive reads to Node and Phase 8A moves mobile account connect/PIN/status/disconnect/reconnect to Node; its live controls still use InstantDB and the Worker. No live data import, scheduler cutover, deployment, or Volkswagen call was made.
 
 ## Migration boundary
 
@@ -28,3 +28,7 @@ The Node scheduler remains **off by default** while the Worker cron may run. Whe
 No production InstantDB rows were read or imported. Synthetic parity tests cover account linkage, encrypted secrets and token replacement, stable vehicles, raw and normalized snapshots, deduplication/forced writes, climate restart, message overrides, and mocked polling. `legacy_snapshots` retains the old 30-day batched prune behavior; normalized observations currently have no retention policy. A later, separately reviewed import must choose ID mapping, backup/key handling, and a single writer before live data moves.
 
 Phase 7 supplies signed mobile passive reads and the local Keychain identity; see [mobile Node cutover](MOBILE_NODE_CUTOVER.md). The phone still calls the Worker for live controls and uses InstantDB for that transitional path. A later control cutover needs durable command handling and an explicit one-scheduler plan.
+
+## Phase 8A account boundary
+
+Migration 4 adds `owner_vw_connection`: remembered account, verification/failure evidence and a device-bound expiring PIN attempt. Existing owner links are retained without claiming prior verification. `NodeAccountApi` composes the unchanged compare-first VW resolver and encrypted application store; the Node HTTP entrypoint rejects old account mutation RPC aliases with 410. Disconnect removes only the active link, retaining encrypted reusable secrets, history, vehicles and climate sessions for explicit reconnect. No device revocation or remote VW logout occurs. Details and remaining Worker controls are in [mobile account cutover](MOBILE_ACCOUNT_CUTOVER.md).

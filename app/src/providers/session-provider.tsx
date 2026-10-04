@@ -1,183 +1,100 @@
-import {
-  clearStoredAuthToken,
-  getStoredAuthToken,
-  setStoredAuthToken,
-} from "@/auth-storage";
 import { BuzzKeyApiError } from "@/buzzkey-client";
-import { db } from "@/db";
+import { requireBuzzKey } from "@/buzzkey-native";
 import { DeviceIdentityRecoveryError } from "@/device-identity";
 import { usePassiveOwner } from "@/hooks/use-passive-data";
-import { orpc } from "@/rpc";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  createContext,
-  use,
-  useEffect,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
+  useIsMutating,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
+import type { AccountConnection } from "@vwapp/contract/account";
+import { createContext, use, type ReactNode } from "react";
 
 interface Session {
-  /** Resolving the NIP-98 authorized-device owner state. */
   isLoading: boolean;
   paired: boolean;
   accountLinked: boolean;
   vehicleAvailable: boolean;
-  /** Transitional Worker account status for legacy controls. */
-  loggedIn: boolean;
-  legacyError: string | null;
-  /** The Node owner state could not be resolved; the device key stays intact. */
+  connection: AccountConnection | undefined;
   initError: string | null;
   retry: () => void;
-  /** A retry kicked off from the error state is in flight. */
   retrying: boolean;
-  /** Server-side logout: detach this client from the VW session. */
   signOut: () => void;
   signOutError: string | null;
-  /**
-   * Local-only escape hatch: discard this device's Instant guest token (a new
-   * guest identity is created on the next attempt). Never called
-   * automatically — identity loss is irreversible, and a transient server
-   * problem must not destroy a working token.
-   */
-  discardLocalAuth: () => void;
+  accountError: string | null;
+  reconnect: ReturnType<typeof useReconnect>;
 }
-
 const SessionContext = createContext<Session | null>(null);
-
 export function useSession(): Session {
-  const ctx = use(SessionContext);
-  if (ctx === null)
-    throw new Error("useSession must be used within SessionProvider");
-  return ctx;
+  const context = use(SessionContext);
+  if (context === null) throw new Error("SessionProvider required");
+  return context;
 }
-
-function errorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
+function useReconnect(onSuccess: () => Promise<void>) {
+  return useMutation({
+    mutationKey: ["buzzkey", "account-action"],
+    mutationFn: () => requireBuzzKey().reconnect(),
+    retry: false,
+    onSuccess,
+  });
 }
-
-/**
- * App-wide transitional session. The NIP-98 owner read gates passive screens.
- * Instant guest identity and Worker auth.me continue only for legacy controls.
- */
+/** Device authorization is independent of VW connection and legacy identity. */
 export function SessionProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
-  const auth = db.useAuth();
+  const changingAccount =
+    useIsMutating({ mutationKey: ["buzzkey", "account-action"] }) > 0;
   const owner = usePassiveOwner();
-
-  // Guest sign-in, retried via the `attempt` nonce. The in-flight ref guards
-  // against double sign-ins (two guests for one device). We first try to restore
-  // a refresh token kept in the keychain (survives reinstall — see
-  // auth-storage.ts); only with no usable saved token do we mint a brand-new
-  // guest identity.
-  const [guestError, setGuestError] = useState<string | null>(null);
-  const [attempt, setAttempt] = useState(0);
-  const signingIn = useRef(false);
-  useEffect(() => {
-    if (auth.isLoading || auth.user != null || signingIn.current) return;
-    signingIn.current = true;
-    void (async () => {
-      const saved = await getStoredAuthToken();
-      if (saved !== null) {
-        try {
-          await db.auth.signInWithToken(saved);
-          return;
-        } catch {
-          // The saved token is stale/invalid — drop it and start fresh.
-          await clearStoredAuthToken();
-        }
-      }
-      await db.auth.signInAsGuest();
-    })()
-      .catch((err: unknown) => {
-        setGuestError(errorMessage(err));
-      })
-      .finally(() => {
-        signingIn.current = false;
-      });
-  }, [auth.isLoading, auth.user, attempt]);
-
-  // Mirror the live identity's refresh token into the keychain so a reinstall
-  // can restore it. Cheap and idempotent — writes the same value most launches.
-  useEffect(() => {
-    const token = auth.user?.refresh_token;
-    if (token != null) void setStoredAuthToken(token);
-  }, [auth.user?.refresh_token]);
-
-  // After an explicit local discard we already KNOW this device is logged
-  // out — don't block on (or surface errors from) auth.me, which may be the
-  // very server that's unreachable. The flag is sticky for this launch but
-  // inert once auth.me has data: every consumer also checks me.data.
-  const [discarded, setDiscarded] = useState(false);
-
-  const me = useQuery({
-    ...orpc.auth.me.queryOptions(),
-    enabled: auth.user != null,
-    retry: 2,
+  const account = useQuery({
+    queryKey: ["buzzkey", "account"],
+    queryFn: () => requireBuzzKey().account(),
+    enabled: owner.data !== undefined,
+    retry: 1,
+    refetchInterval: 45_000,
   });
-  const logout = useMutation(
-    orpc.auth.logout.mutationOptions({
-      onSuccess: async () => {
-        await queryClient.invalidateQueries();
-      },
-    }),
-  );
-
-  // The Worker identity initializes in the background for transitional
-  // controls. It never gates Node passive reads or device pairing.
+  const invalidate = async () => {
+    await queryClient.invalidateQueries({ queryKey: ["buzzkey"] });
+  };
+  const logout = useMutation({
+    mutationKey: ["buzzkey", "account-action"],
+    mutationFn: () => requireBuzzKey().disconnect(),
+    retry: false,
+    onSuccess: invalidate,
+  });
+  const reconnect = useReconnect(invalidate);
   const rejected =
     owner.error instanceof DeviceIdentityRecoveryError ||
     (owner.error instanceof BuzzKeyApiError &&
-      owner.error.code === "authorization_rejected");
+      owner.error.code === "authorization_rejected") ||
+    (account.error instanceof BuzzKeyApiError &&
+      account.error.code === "authorization_rejected");
   const initError =
     owner.data === undefined && !rejected
       ? (owner.error?.message ?? null)
       : null;
-  const isLoading =
-    owner.data === undefined && owner.isPending && initError === null;
-
-  const retry = () => {
-    setGuestError(null);
-    setAttempt((n) => n + 1); // re-attempt guest sign-in if that step failed
-    if (me.isError) void me.refetch();
-    void owner.refetch();
-  };
-
-  const discardLocalAuth = () => {
-    setDiscarded(true);
-    void (async () => {
-      await db.auth.signOut();
-      // The keychain token belongs to the identity we're discarding — drop it so
-      // a reinstall doesn't silently restore it.
-      await clearStoredAuthToken();
-      // The cached auth.me answer belongs to the discarded identity.
-      await queryClient.resetQueries();
-    })().catch((err: unknown) => {
-      setGuestError(errorMessage(err));
-    });
-  };
-
   return (
     <SessionContext.Provider
       value={{
-        isLoading,
-        paired: owner.data !== undefined,
-        accountLinked: owner.data?.accountLinked === true,
-        vehicleAvailable: owner.data?.vehicleAvailable === true,
-        loggedIn: !discarded && me.data?.loggedIn === true,
-        legacyError:
-          guestError ??
-          auth.error?.message ??
-          (me.isError ? errorMessage(me.error) : null),
+        isLoading:
+          owner.data === undefined && owner.isPending && initError === null,
+        paired: owner.data !== undefined && !rejected,
+        accountLinked: account.data?.linked === true,
+        vehicleAvailable: account.data?.vehicleAvailable === true,
+        connection:
+          account.isError || changingAccount ? undefined : account.data,
+        accountError:
+          account.error?.message ?? reconnect.error?.message ?? null,
         initError,
-        retry,
-        retrying: owner.isFetching,
-        signOut: () => {
-          logout.mutate(undefined);
+        retry: () => {
+          void owner.refetch();
+          void account.refetch();
         },
-        signOutError: logout.error === null ? null : errorMessage(logout.error),
-        discardLocalAuth,
+        retrying: owner.isFetching || account.isFetching,
+        signOut: () => {
+          logout.mutate();
+        },
+        signOutError: logout.error?.message ?? null,
+        reconnect,
       }}
     >
       {children}

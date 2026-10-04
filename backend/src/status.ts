@@ -24,8 +24,16 @@ export async function readStatus(
   account: StoredAccount,
   vehicle: StoredVehicle,
   spin: string,
+  options: { safeErrors?: boolean } = {},
 ): Promise<StatusDTO> {
-  const carnet = await ensureCarnetToken(db, env, account, vehicle.uuid, spin);
+  const carnet = await ensureCarnetToken(
+    db,
+    env,
+    account,
+    vehicle.uuid,
+    spin,
+    options,
+  );
   try {
     return await vwGetStatus(carnet, vehicle.vin, vehicle.uuid);
   } catch (err) {
@@ -36,7 +44,7 @@ export async function readStatus(
       account,
       vehicle.uuid,
       spin,
-      { force: true },
+      { ...options, force: true },
     );
     return vwGetStatus(fresh, vehicle.vin, vehicle.uuid);
   }

@@ -29,6 +29,7 @@ export async function reauth(
   env: AppEnv,
   account: StoredAccount,
   forceRelogin: boolean,
+  safeErrors = false,
 ): Promise<VwTokens> {
   let tokens: VwTokens | null = null;
   // VW's refresh grant now also requires the original login code_verifier, so a
@@ -47,7 +48,7 @@ export async function reauth(
       console.log(`[auth] account=${account.id} token refresh ok`);
     } catch (err) {
       console.log(
-        `[auth] account=${account.id} token refresh failed (${err instanceof Error ? err.message : "unknown"})`,
+        `[auth] account=${account.id} token refresh failed (${safeErrors ? "authentication failed" : err instanceof Error ? err.message : "unknown"})`,
       );
     }
   }
@@ -72,7 +73,7 @@ export async function reauth(
       console.log(`[auth] account=${account.id} VW password login ok`);
     } catch (err) {
       console.error(
-        `[auth] account=${account.id} VW password login FAILED: ${err instanceof Error ? err.message : "unknown"}`,
+        `[auth] account=${account.id} VW password login FAILED: ${safeErrors ? "authentication failed" : err instanceof Error ? err.message : "unknown"}`,
       );
       throw err;
     }
@@ -86,9 +87,10 @@ export async function ensureTokens(
   db: Db,
   env: AppEnv,
   account: StoredAccount,
+  safeErrors = false,
 ): Promise<VwTokens> {
   if (account.tokens.expiresAt > Date.now() + 60_000) return account.tokens;
-  return reauth(db, env, account, false);
+  return reauth(db, env, account, false, safeErrors);
 }
 
 /** Re-mint this long before a cached carnet token actually expires. */
@@ -113,7 +115,7 @@ export async function ensureCarnetToken(
   account: StoredAccount,
   uuid: string,
   spin: string,
-  opts: { force?: boolean } = {},
+  opts: { force?: boolean; safeErrors?: boolean } = {},
 ): Promise<string> {
   const cached = account.carnetTokens[uuid];
   if (
@@ -123,7 +125,7 @@ export async function ensureCarnetToken(
   )
     return cached.token;
 
-  const tokens = await ensureTokens(db, env, account);
+  const tokens = await ensureTokens(db, env, account, opts.safeErrors);
   let token: string;
   try {
     token = await vwMintSpinSession(tokens, uuid, spin);
@@ -131,7 +133,7 @@ export async function ensureCarnetToken(
     // Access token died between the expiry check and the mint — re-login once.
     if (!(err instanceof VwAuthError)) throw err;
     token = await vwMintSpinSession(
-      await reauth(db, env, account, true),
+      await reauth(db, env, account, true, opts.safeErrors),
       uuid,
       spin,
     );

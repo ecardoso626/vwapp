@@ -2,6 +2,7 @@ import { IosButton, IosGroup, IosRow } from "@/components/ios-list";
 import { agoLabel, useNow } from "@/hooks/use-now";
 import { useFirstPassiveVehicle } from "@/hooks/use-passive-data";
 import { useIosColors } from "@/ios-colors";
+import { useLegacyControlGate } from "@/providers/legacy-control-provider";
 import { orpc } from "@/rpc";
 import { useMutation } from "@tanstack/react-query";
 import { Stack } from "expo-router";
@@ -15,7 +16,8 @@ import { Paragraph, Spinner, Text } from "tamagui";
 export default function UpdatesScreen() {
   const now = useNow();
   const ios = useIosColors();
-  const { vehiclesQuery, snapshot } = useFirstPassiveVehicle();
+  const { vehiclesQuery, vehicle, snapshot } = useFirstPassiveVehicle();
+  const { allowed, reason } = useLegacyControlGate(vehicle?.uuid);
   const isLoading = vehiclesQuery.isLoading;
 
   const refresh = useMutation(orpc.vehicle.refresh.mutationOptions());
@@ -39,14 +41,16 @@ export default function UpdatesScreen() {
           refresh does not update the separate Node cache immediately.
         </Paragraph>
 
+        {!allowed ? <Paragraph color="$color10">{reason}</Paragraph> : null}
         <IosButton
           full
           tone="blue"
           icon="arrow.clockwise"
-          disabled={refresh.isPending}
+          disabled={!allowed || refresh.isPending}
           onPress={() => {
+            if (!allowed || vehicle === undefined) return;
             refresh.mutate(
-              {},
+              { uuid: vehicle.uuid },
               {
                 onSuccess: () => {
                   void vehiclesQuery.refetch();

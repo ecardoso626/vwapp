@@ -1,6 +1,6 @@
 # Phase 7: mobile passive Node cutover
 
-BuzzKey's passive owner, vehicle, status, history, and VW-message views now read the SQLite-backed Node HTTP API. The app still calls the Cloudflare Worker for vehicle commands and VW login/logout. The two stores are independent: pairing a phone does not import its Worker/InstantDB account into Node. An owner must link the account in Node separately before Node vehicle data appears. This phase performs no live import, VW call, scheduler activation, or deployment.
+BuzzKey's passive owner, vehicle, status, history, and VW-message views now read the SQLite-backed Node HTTP API. Phase 8A moves VW connect/PIN/status/disconnect/reconnect to Node; the app still calls Worker for vehicle commands. See [mobile account cutover](MOBILE_ACCOUNT_CUTOVER.md). The two stores are independent: pairing a phone does not import its Worker/InstantDB account into Node. An owner must link the account in Node separately before Node vehicle data appears. This phase performs no live import, VW call, scheduler activation, or deployment.
 
 ## Mobile dependency inventory
 
@@ -35,7 +35,7 @@ Network failures, rejected authorization, rate limits, server faults and invalid
 
 React Query polls owner/vehicle/message cache every 45 seconds and marks vehicle/message responses stale after 20 seconds. History is requested on screen entry. Dashboard pull-to-refresh and its Refresh menu item refetch **Node cache only**; they do not wake VW. The explicit “Refresh now” button on Status updates remains the Worker wake/control path. InstantDB's live subscription updates are replaced by polling, so a change may appear after the next interval. The `VehicleState` freshness timestamps describe when Node last fetched and when VW last reported data; cache refetch does not make an old VW observation fresh. Unknown lock, charging, closures, location and temperature stay unknown in the UI.
 
-The retained control stack still imports `app/src/db.ts` and `app/src/rpc.ts`, so the current app build requires the legacy Instant app ID and Worker API URL even though **Node passive reads need no Instant guest authentication**. Worker sign-in does not link the separate Node account or copy its vehicle data. A Worker command or forced refresh writes its own InstantDB state, **not** the Node SQLite cache; the passive UI may continue showing an older observation until Node is updated separately. The app is therefore transitional, and a paired owner may see no Node vehicle until a separately managed Node account link and status source exist. Running both live schedulers is still prohibited; Node's scheduler remains off by default.
+Phase 8A isolates those retained imports in an optional legacy control provider. Instant/Worker configuration and guest identity are no longer required for pairing, passive data or VW account setup. The app restores existing legacy sessions only and checks both VW reference and VIN before commands. Worker actions still write only InstantDB, so passive Node data can remain stale. New phones need the later control migration; Node polling stays off by default. The inventory above records the Phase 7 boundary before this account cutover.
 
 ## Native and future boundaries
 

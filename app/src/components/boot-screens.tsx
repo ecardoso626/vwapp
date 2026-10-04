@@ -18,12 +18,10 @@ export function BootError({
   message,
   retrying,
   onRetry,
-  onDiscardLocalAuth,
 }: {
   message: string;
   retrying: boolean;
   onRetry: () => void;
-  onDiscardLocalAuth: () => void;
 }) {
   return (
     <YStack
@@ -45,13 +43,6 @@ export function BootError({
         disabled={retrying}
         onPress={onRetry}
         label={retrying ? "Trying…" : "Try again"}
-      />
-      {/* Escape hatch: forget this device's identity (server session survives). */}
-      <IosButton
-        tone="blue"
-        variant="plain"
-        onPress={onDiscardLocalAuth}
-        label="Sign out on this device"
       />
     </YStack>
   );

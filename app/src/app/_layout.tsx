@@ -1,4 +1,5 @@
 import { BootError, BootLoading } from "@/components/boot-screens";
+import { LegacyControlProvider } from "@/providers/legacy-control-provider";
 import { LoginFlowProvider } from "@/providers/login-flow";
 import { SessionProvider, useSession } from "@/providers/session-provider";
 import { ThemeProvider, useThemeToggle } from "@/providers/theme-provider";
@@ -21,8 +22,7 @@ void SplashScreen.preventAutoHideAsync();
 const queryClient = new QueryClient();
 
 function RootNavigator() {
-  const { isLoading, paired, initError, retry, retrying, discardLocalAuth } =
-    useSession();
+  const { isLoading, paired, initError, retry, retrying } = useSession();
   // Headers are hidden by default here, but screens that opt back in
   // (+not-found) must still follow the in-app theme.
   const theme = useTheme();
@@ -57,12 +57,7 @@ function RootNavigator() {
   // A rejected signed identity opens pairing; network faults remain errors.
   if (initError !== null)
     return (
-      <BootError
-        message={initError}
-        retrying={retrying}
-        onRetry={retry}
-        onDiscardLocalAuth={discardLocalAuth}
-      />
+      <BootError message={initError} retrying={retrying} onRetry={retry} />
     );
 
   // The navigator mounts only once the session is known, so the cold-start
@@ -112,9 +107,11 @@ export default function RootLayout() {
           <KeyboardProvider>
             <QueryClientProvider client={queryClient}>
               <SessionProvider>
-                <LoginFlowProvider>
-                  <RootNavigator />
-                </LoginFlowProvider>
+                <LegacyControlProvider>
+                  <LoginFlowProvider>
+                    <RootNavigator />
+                  </LoginFlowProvider>
+                </LegacyControlProvider>
               </SessionProvider>
             </QueryClientProvider>
           </KeyboardProvider>

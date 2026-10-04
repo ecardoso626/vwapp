@@ -6,6 +6,7 @@ import { authenticateHttpRequest, authHttpError } from "../auth/http";
 import type { DeviceAuthService } from "../auth/service";
 import type { Db } from "../src/application-store";
 import { router } from "../src/router";
+import type { NodeAccountApi } from "./account";
 import type { NodeConfig } from "./config";
 import type { NodePassiveApi } from "./passive";
 import {
@@ -19,6 +20,7 @@ export interface NodeServices extends SchedulerJobs {
   auth: DeviceAuthService;
   db: Db;
   passive?: NodePassiveApi;
+  account?: NodeAccountApi;
 }
 
 export function createNodeRuntime(
@@ -75,17 +77,46 @@ export function createNodeRuntime(
     }
 
     if (request.url?.startsWith("/api/v1/")) {
-      const result = await services.passive?.handle(
-        request.method ?? "GET",
-        request.url,
-        decision.body,
-        decision.device,
-      );
+      const result =
+        (await services.account?.handle(
+          request.method ?? "GET",
+          request.url,
+          decision.body,
+          decision.device,
+        )) ??
+        (await services.passive?.handle(
+          request.method ?? "GET",
+          request.url,
+          decision.body,
+          decision.device,
+        ));
       response.writeHead(result?.status ?? 404, {
         "content-type": "application/json",
         "cache-control": "private, no-store",
       });
       response.end(JSON.stringify(result?.body ?? { error: "not_found" }));
+      return;
+    }
+
+    // Retire Node's legacy account mutations: the safe account API owns
+    // connection metadata and never exposes raw upstream credential errors.
+    if (
+      [
+        "/rpc/auth/login",
+        "/rpc/auth/checkCredentials",
+        "/rpc/auth/logout",
+      ].includes(
+        decodeURIComponent((request.url ?? "").split("?")[0] ?? "").replace(
+          /\/+$/,
+          "",
+        ),
+      )
+    ) {
+      response.writeHead(410, {
+        "content-type": "application/json",
+        "cache-control": "private, no-store",
+      });
+      response.end('{"error":"account_api_required"}');
       return;
     }
 

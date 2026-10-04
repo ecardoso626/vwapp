@@ -10,7 +10,7 @@ test("empty database migrates to latest version with foreign keys enabled", (t) 
   const status = migrationStatus(store.db);
   assert.deepEqual(
     status.map((row) => row.version),
-    [1, 2, 3],
+    [1, 2, 3, 4],
   );
   assert.equal(status[0].name, "initial_storage_foundation");
   assert.equal(status[1].name, "owner_device_authentication");
@@ -31,7 +31,7 @@ test("failing migration rolls back its tables and ledger entry", (t) => {
   const broken = [
     ...MIGRATIONS,
     {
-      version: 3,
+      version: MIGRATIONS.length + 1,
       name: "synthetic_failure",
       sql: "CREATE TABLE should_rollback(id INTEGER); SELECT * FROM missing_synthetic_table;",
     },
@@ -39,7 +39,7 @@ test("failing migration rolls back its tables and ledger entry", (t) => {
   assert.throws(() => applyMigrations(store.db, broken));
   assert.deepEqual(
     migrationStatus(store.db).map((row) => row.version),
-    [1, 2, 3],
+    [1, 2, 3, 4],
   );
   assert.equal(
     store.db
@@ -65,4 +65,28 @@ test("changed or future migration ledgers are refused", (t) => {
   );
   future.exec("INSERT INTO schema_migrations VALUES (9, 'future', 'hash', 0)");
   assert.throws(() => applyMigrations(future), /Unknown or changed/);
+});
+
+test("version 4 upgrades an existing owner link without deleting accounts or pretending session verification", (t) => {
+  const db = new DatabaseSync(":memory:");
+  t.after(() => db.close());
+  applyMigrations(db, MIGRATIONS.slice(0, 3));
+  db.exec(
+    "INSERT INTO accounts(id, created_at) VALUES ('synthetic-existing-account', 0); INSERT INTO owner_account_link(owner_id, account_id) VALUES ('owner', 'synthetic-existing-account');",
+  );
+  applyMigrations(db);
+  const row = db
+    .prepare("SELECT * FROM owner_vw_connection WHERE owner_id = 'owner'")
+    .get();
+  assert.equal(row.account_id, "synthetic-existing-account");
+  assert.equal(row.verified_at, null);
+  assert.equal(row.pending_attempt_id, null);
+  assert.equal(
+    db.prepare("SELECT COUNT(*) AS n FROM owner_account_link").get().n,
+    1,
+  );
+  assert.deepEqual(
+    migrationStatus(db).map((row) => row.version),
+    [1, 2, 3, 4],
+  );
 });

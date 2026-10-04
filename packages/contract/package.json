@@ -6,7 +6,8 @@
   "types": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
-    "./passive": "./src/passive.ts"
+    "./passive": "./src/passive.ts",
+    "./account": "./src/account.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

@@ -10,6 +10,8 @@ import {
 } from "@/hooks/use-passive-data";
 import { useTransientError } from "@/hooks/use-transient-error";
 import { useIosColors } from "@/ios-colors";
+import { useLegacyControlGate } from "@/providers/legacy-control-provider";
+import { useLoginFlow } from "@/providers/login-flow";
 import { useSession } from "@/providers/session-provider";
 import { formatMiles } from "@/units";
 import { Stack, useRouter } from "expo-router";
@@ -28,17 +30,25 @@ export default function Dashboard() {
   const theme = useTheme();
   const ios = useIosColors();
   const router = useRouter();
-  const { signOut, signOutError, accountLinked, loggedIn, legacyError } =
-    useSession();
+  const {
+    signOut,
+    signOutError,
+    accountLinked,
+    connection,
+    accountError,
+    reconnect,
+  } = useSession();
 
   const { vehiclesQuery, vehicle, snapshot } = useFirstPassiveVehicle();
+  const { allowed, reason } = useLegacyControlGate(vehicle?.uuid);
+  const { setAttempt } = useLoginFlow();
   const isLoading = vehiclesQuery.isLoading;
   // A failed server logout must be visible too — otherwise tapping "Sign out"
   // with the server down silently does nothing. The refresh (mutation) error
   // is transient — query errors clear themselves on recovery, but a mutation
   // error would sit there until the next refresh.
   const refreshError = useTransientError(vehiclesQuery.error);
-  const errorMessage = refreshError?.message ?? signOutError;
+  const errorMessage = refreshError?.message ?? signOutError ?? accountError;
 
   const noSnapshotYet =
     vehicle !== undefined &&
@@ -96,15 +106,15 @@ export default function Dashboard() {
               router.push("/login");
             }}
           >
-            Legacy control sign-in
+            Connect / update VW account
           </Stack.Toolbar.MenuAction>
-          {loggedIn ? (
+          {accountLinked ? (
             <Stack.Toolbar.MenuAction
               icon="rectangle.portrait.and.arrow.right"
               destructive
               onPress={signOut}
             >
-              Sign out of legacy controls
+              Disconnect VW account
             </Stack.Toolbar.MenuAction>
           ) : null}
         </Stack.Toolbar.Menu>
@@ -135,9 +145,28 @@ export default function Dashboard() {
             that account.
           </Paragraph>
         ) : null}
-        {legacyError !== null ? (
-          <Text color="$red10">Legacy controls: {legacyError}</Text>
+        <Paragraph color="$color10">
+          VW account: {connection?.state.replaceAll("_", " ") ?? "checking"}.
+          Device pairing stays separate.
+        </Paragraph>
+        {connection?.reconnectAvailable === true &&
+        connection.state !== "connected" ? (
+          <IosButton
+            label={reconnect.isPending ? "Reconnecting…" : "Reconnect VW"}
+            disabled={reconnect.isPending}
+            onPress={() => {
+              reconnect.mutate(undefined, {
+                onSuccess: (result) => {
+                  if (result.pending !== null) {
+                    setAttempt(result.pending);
+                    router.push("/login-pin");
+                  }
+                },
+              });
+            }}
+          />
         ) : null}
+        {!allowed ? <Paragraph color="$color10">{reason}</Paragraph> : null}
         {vehicle !== undefined ? (
           <Text selectable style={{ color: ios.secondaryLabel, fontSize: 13 }}>
             {vehicle.vin}
@@ -208,7 +237,7 @@ export default function Dashboard() {
           <StatusCards
             s={snapshot}
             uuid={vehicle.uuid}
-            controlsEnabled={loggedIn}
+            controlsEnabled={allowed}
           />
         ) : null}
       </ScrollView>

@@ -1,39 +1,37 @@
+import { requireBuzzKey } from "@/buzzkey-native";
 import { IosButton } from "@/components/ios-list";
 import { useFocusOnScreen } from "@/hooks/use-focus-on-screen";
 import { useLoginFlow } from "@/providers/login-flow";
-import { orpc } from "@/rpc";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import { useState } from "react";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { H1, Input, Paragraph, Text, YStack } from "tamagui";
 
-/**
- * Step 1 of sign-in: VW account credentials. Validates username + password with
- * VW (auth.checkCredentials — no login/persist yet) so a wrong password is
- * caught here, then hands them to the S-PIN screen. Kept to a clean
- * username + password form (no second secure field) so iOS offers to fill the
- * saved email and to save the credential after submit.
- */
+/** Validate synthetic or owner-entered credentials through the signed Node API. */
 export default function Login() {
   const router = useRouter();
-  const { setCredentials } = useLoginFlow();
+  const { setAttempt } = useLoginFlow();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const emailRef = useFocusOnScreen();
 
-  const check = useMutation(
-    orpc.auth.checkCredentials.mutationOptions({
-      onSuccess: () => {
-        setCredentials({ username, password });
-        router.push("/login-pin");
-      },
-    }),
-  );
+  const queryClient = useQueryClient();
+  const check = useMutation({
+    mutationKey: ["buzzkey", "account-action"],
+    mutationFn: () => requireBuzzKey().submitCredentials(username, password),
+    retry: false,
+    onSuccess: async (result) => {
+      setPassword("");
+      if (result.pending !== null) setAttempt(result.pending);
+      await queryClient.invalidateQueries({ queryKey: ["buzzkey"] });
+      router.push("/login-pin");
+    },
+  });
 
   const canSubmit = username !== "" && password !== "" && !check.isPending;
   const submit = () => {
-    if (canSubmit) check.mutate({ username, password });
+    if (canSubmit) check.mutate();
   };
 
   return (

@@ -1,6 +1,6 @@
 # SQLite storage foundation (Phase 5)
 
-This storage implementation lives under `backend/storage/`. Phase 6B connects the Node HTTP runtime to it for authentication and application state; the Worker and mobile app continue using InstantDB. No existing account, snapshot, or credential has been imported. See [Node SQLite cutover](NODE_SQLITE_CUTOVER.md).
+This storage implementation lives under `backend/storage/`. Phase 6B connects the Node HTTP runtime to it for authentication and application state; the Worker continues using InstantDB; mobile retains only optional legacy control/session dependencies. No existing account, snapshot, or credential has been imported. See [Node SQLite cutover](NODE_SQLITE_CUTOVER.md).
 
 ## Runtime and location
 
@@ -12,7 +12,7 @@ The implementation uses Node's `node:sqlite` `DatabaseSync` and `backup` APIs wi
 
 `schema_migrations` records ordered version, name, SQL checksum, and application time. `applyMigrations` validates the complete ledger and applies remaining migrations in one `BEGIN IMMEDIATE` transaction. Reopening is idempotent; a changed, missing, or future version fails closed. Add new numbered SQL migrations rather than editing an applied migration. The initial schema is version 1 and uses SQLite `STRICT` tables, foreign keys, and constraints.
 
-Version 2 adds NIP-98 devices, pairing and replay records. Version 3 adds the Node application tables `vw_account_sessions`, `owner_account_link`, `legacy_snapshots`, `climate_sessions`, and `messages`; it does not import InstantDB data.
+Version 2 adds NIP-98 devices, pairing and replay records. Version 3 adds the Node application tables `vw_account_sessions`, `owner_account_link`, `legacy_snapshots`, `climate_sessions`, and `messages`; it does not import InstantDB data. Version 4 adds `owner_vw_connection` for connection evidence, a remembered account and a device-bound expiring PIN attempt; earlier migration SQL is unchanged.
 
 | Table                   | Purpose                                                                                                                                                                     |
 | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

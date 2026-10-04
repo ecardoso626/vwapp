@@ -1,4 +1,5 @@
 import { useTransientError } from "@/hooks/use-transient-error";
+import { useLegacyControlGate } from "@/providers/legacy-control-provider";
 import { orpc } from "@/rpc";
 import { useMutation } from "@tanstack/react-query";
 import { Alert } from "react-native";
@@ -19,6 +20,7 @@ export function LockControl({
   uuid: string;
   locked: boolean | null;
 }) {
+  const { allowed } = useLegacyControlGate(uuid);
   const command = useMutation(orpc.vehicle.command.mutationOptions());
   const shownError = useTransientError(command.error);
 
@@ -28,7 +30,7 @@ export function LockControl({
   const shownLocked = inFlight !== undefined ? inFlight === "lock" : locked;
 
   const run = (action: "lock" | "unlock") => {
-    command.mutate({ uuid, action });
+    if (allowed) command.mutate({ uuid, action });
   };
 
   // Native UIAlertController; unlocking exposes the car, so it's worth a
@@ -82,7 +84,7 @@ export function LockControl({
           <IosButton
             tone="blue"
             icon="lock.open.fill"
-            disabled={pending}
+            disabled={!allowed || pending}
             onPress={confirmUnlock}
             label="Unlock"
           />
@@ -91,7 +93,7 @@ export function LockControl({
           <IosButton
             tone="green"
             icon="lock.fill"
-            disabled={pending}
+            disabled={!allowed || pending}
             onPress={() => {
               run("lock");
             }}

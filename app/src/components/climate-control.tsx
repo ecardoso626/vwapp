@@ -1,7 +1,7 @@
 import { SfIcon } from "@/components/sf-icon";
-import { db } from "@/db";
 import { useNow } from "@/hooks/use-now";
 import { useTransientError } from "@/hooks/use-transient-error";
+import { useLegacyControlGate } from "@/providers/legacy-control-provider";
 import { orpc } from "@/rpc";
 import {
   useIsMutating,
@@ -47,20 +47,7 @@ export function ClimateControl({ uuid }: { uuid: string }) {
   const now = useNow(15_000);
   // This managed-command session still belongs to the legacy Worker/InstantDB
   // control path. Its vehicle row ID may differ from the Node vehicle ID.
-  const legacyVehicles = db.useQuery({ vehicles: {} });
-  const legacyId = legacyVehicles.data?.vehicles.find(
-    (item) => item.uuid === uuid,
-  )?.id;
-  const sessionQuery = db.useQuery(
-    legacyId === undefined
-      ? null
-      : {
-          climateSessions: {
-            $: { where: { "vehicle.id": legacyId, state: "active" } },
-          },
-        },
-  );
-  const session = sessionQuery.data?.climateSessions[0];
+  const { allowed, legacyId, session } = useLegacyControlGate(uuid);
   const active = session !== undefined;
 
   // Observe the start mutation fired by the /climate route, so this card shows
@@ -83,6 +70,7 @@ export function ClimateControl({ uuid }: { uuid: string }) {
   const error = useTransientError(startError ?? stopCmd.error ?? null);
 
   const openStart = () => {
+    if (!allowed) return;
     router.push({
       pathname: "/climate",
       params: { uuid, vehicleId: legacyId, mode: "start" },
@@ -90,6 +78,7 @@ export function ClimateControl({ uuid }: { uuid: string }) {
   };
   const openAdjust = () => {
     if (session === undefined) return;
+    if (!allowed) return;
     router.push({
       pathname: "/climate",
       params: {
@@ -155,13 +144,13 @@ export function ClimateControl({ uuid }: { uuid: string }) {
               variant="tinted"
               label="Adjust"
               onPress={openAdjust}
-              disabled={stopCmd.isPending || startPending}
+              disabled={!allowed || stopCmd.isPending || startPending}
             />
             <IosButton
               tone="red"
-              disabled={stopCmd.isPending || startPending}
+              disabled={!allowed || stopCmd.isPending || startPending}
               onPress={() => {
-                stopCmd.mutate({ uuid });
+                if (allowed) stopCmd.mutate({ uuid });
               }}
               label="Stop"
             />
@@ -170,7 +159,7 @@ export function ClimateControl({ uuid }: { uuid: string }) {
           <IosButton
             tone="blue"
             icon="wind"
-            disabled={startPending}
+            disabled={!allowed || startPending}
             onPress={openStart}
             label="Start"
           />

@@ -1,6 +1,7 @@
 import { climateStartKey } from "@/components/climate-control";
 import { DurationField } from "@/components/duration-field";
 import { IosButton } from "@/components/ios-list";
+import { useLegacyControlGate } from "@/providers/legacy-control-provider";
 import { useThemeToggle } from "@/providers/theme-provider";
 import { orpc } from "@/rpc";
 import { Host, Stepper } from "@expo/ui/swift-ui";
@@ -50,6 +51,7 @@ export default function ClimateSheet() {
     tempF?: string;
     endMs?: string;
   }>();
+  const { allowed, reason } = useLegacyControlGate(uuid);
   const adjust = mode === "adjust";
 
   const seededEndMs = adjust && endMsParam != null ? Number(endMsParam) : null;
@@ -69,7 +71,7 @@ export default function ClimateSheet() {
   // S-PIN); Adjust already carries it via params.
   const info = useQuery({
     ...orpc.vehicle.climateInfo.queryOptions({ input: { uuid } }),
-    enabled: !adjust,
+    enabled: allowed && !adjust,
     staleTime: 60_000,
   });
 
@@ -109,6 +111,7 @@ export default function ClimateSheet() {
         {adjust ? "Adjust climate" : "Start climate"}
       </Paragraph>
 
+      {!allowed ? <Paragraph color="$color10">{reason}</Paragraph> : null}
       {/* Temperature stepper */}
       <YStack gap="$2">
         <Paragraph color="$color10">Temperature</Paragraph>
@@ -176,8 +179,9 @@ export default function ClimateSheet() {
       <IosButton
         full
         tone="blue"
-        disabled={startCmd.isPending || !tempReady}
+        disabled={!allowed || startCmd.isPending || !tempReady}
         onPress={() => {
+          if (!allowed) return;
           const effectiveMin =
             endMs !== null
               ? Math.min(

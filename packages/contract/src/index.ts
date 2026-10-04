@@ -2,6 +2,12 @@ import { oc } from "@orpc/contract";
 import { z } from "zod";
 
 export type {
+  AccountConnection,
+  AccountAttempt,
+  AccountAction,
+} from "./account.js";
+
+export type {
   BatteryState,
   ClimateState,
   CommandConfirmation,

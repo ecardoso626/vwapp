@@ -1,4 +1,10 @@
 import {
+  accountActionSchema,
+  accountConnectionSchema,
+  type AccountAction,
+  type AccountConnection,
+} from "@vwapp/contract/account";
+import {
   passiveCurrentSchema,
   passiveHistorySchema,
   passiveMessagesSchema,
@@ -19,7 +25,9 @@ export type BuzzKeyErrorCode =
   | "authorization_rejected"
   | "rate_limited"
   | "server_error"
-  | "invalid_response";
+  | "invalid_response"
+  | "account_authentication_failed"
+  | "account_action_required";
 
 export class BuzzKeyApiError extends Error {
   readonly code: BuzzKeyErrorCode;
@@ -31,6 +39,10 @@ export class BuzzKeyApiError extends Error {
           "Device authorization was rejected. Pair or re-pair this device.",
         rate_limited: "Too many requests. Try again shortly.",
         server_error: "BuzzKey server could not complete the request.",
+        account_authentication_failed:
+          "Volkswagen sign-in failed. Check your credentials.",
+        account_action_required:
+          "Restart account connection or try again shortly.",
         invalid_response: "BuzzKey server returned invalid data.",
       }[code],
     );
@@ -90,6 +102,10 @@ export function createBuzzKeyClient(options: BuzzKeyClientOptions) {
       throw new BuzzKeyApiError("authorization_rejected");
     if (response.status === 429) throw new BuzzKeyApiError("rate_limited");
     if (response.status >= 500) throw new BuzzKeyApiError("server_error");
+    if (response.status === 422)
+      throw new BuzzKeyApiError("account_authentication_failed");
+    if (response.status === 409)
+      throw new BuzzKeyApiError("account_action_required");
     if (!response.ok) throw new BuzzKeyApiError("invalid_response");
     try {
       return (await response.json()) as unknown;
@@ -118,6 +134,39 @@ export function createBuzzKeyClient(options: BuzzKeyClientOptions) {
         name,
       });
       return parse(passivePairedSchema, result);
+    },
+    async account(): Promise<AccountConnection> {
+      return parse(accountConnectionSchema, await request("/api/v1/account"));
+    },
+    async submitCredentials(
+      username: string,
+      password: string,
+    ): Promise<AccountAction> {
+      return parse(
+        accountActionSchema,
+        await request("/api/v1/account/credentials", "POST", {
+          username,
+          password,
+        }),
+      );
+    },
+    async connect(attemptId: string, spin: string): Promise<AccountAction> {
+      return parse(
+        accountActionSchema,
+        await request("/api/v1/account/connect", "POST", { attemptId, spin }),
+      );
+    },
+    async reconnect(): Promise<AccountAction> {
+      return parse(
+        accountActionSchema,
+        await request("/api/v1/account/reconnect", "POST", {}),
+      );
+    },
+    async disconnect(): Promise<AccountAction> {
+      return parse(
+        accountActionSchema,
+        await request("/api/v1/account/disconnect", "POST", {}),
+      );
     },
     async owner(): Promise<PassiveOwner> {
       return parse(passiveOwnerSchema, await request("/api/v1/owner"));

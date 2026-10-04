@@ -197,4 +197,23 @@ CREATE TABLE messages (
 CREATE INDEX messages_by_account_time ON messages(account_id, at DESC);
 `,
   },
+  {
+    version: 4,
+    name: "owner_vw_connection",
+    sql: `
+CREATE TABLE owner_vw_connection (
+  owner_id TEXT PRIMARY KEY CHECK(owner_id = 'owner'),
+  account_id TEXT REFERENCES accounts(id) ON DELETE SET NULL,
+  state TEXT NOT NULL CHECK(state IN ('connected', 'pin_required', 'reauthentication_required', 'session_unusable', 'credentials_missing', 'disconnected')),
+  verified_at INTEGER,
+  failure_code TEXT CHECK(failure_code IN ('authentication_failed', 'service_unavailable', 'status_read_failed')),
+  pending_attempt_id TEXT UNIQUE,
+  pending_account_id TEXT REFERENCES accounts(id) ON DELETE SET NULL,
+  pending_device_id TEXT REFERENCES authorized_devices(id) ON DELETE SET NULL,
+  pending_expires_at INTEGER
+) STRICT;
+INSERT INTO owner_vw_connection(owner_id, account_id, state)
+  SELECT owner_id, account_id, 'connected' FROM owner_account_link;
+`,
+  },
 ];

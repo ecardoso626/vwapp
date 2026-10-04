@@ -40,7 +40,12 @@ export default function SettingsScreen() {
 
         <IosGroup>
           {/* Not new URL(...).origin — Hermes' URL support is spotty. */}
-          <IosRow label="API host" value={API_URL.replace(/\/rpc\/?$/, "")} />
+          <IosRow
+            label="API host"
+            value={
+              API_URL?.replace(/\/rpc\/?$/, "") ?? "Controls not configured"
+            }
+          />
           <IosRow
             label="Version"
             value={Constants.expoConfig?.version ?? "unknown"}

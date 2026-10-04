@@ -3,6 +3,7 @@ import { DeviceAuthService } from "../auth/service";
 import { pollAllVehicles, runClimateKeepalive } from "../src/poll";
 import type { SqliteStorage } from "../storage/database";
 import { SecretRepository } from "../storage/secrets";
+import { NodeAccountApi } from "./account";
 import type { NodeConfig } from "./config";
 import { NodePassiveApi } from "./passive";
 import type { NodeServices } from "./runtime";
@@ -13,17 +14,19 @@ export function createNodeServices(
   storage: SqliteStorage,
   config: NodeConfig,
 ): NodeServices {
-  const db = new NodeSqliteStore(
+  const secrets = new SecretRepository(
     storage,
-    new SecretRepository(storage, config.masterKeyId, config.masterKey),
-    config.env.CREDS_ENC_KEY,
+    config.masterKeyId,
+    config.masterKey,
   );
+  const db = new NodeSqliteStore(storage, secrets, config.env.CREDS_ENC_KEY);
   return {
     auth: new DeviceAuthService(
       new DeviceRepository(storage),
       config.publicOrigin,
     ),
     db,
+    account: new NodeAccountApi(storage, db, secrets, config.env),
     passive: new NodePassiveApi(storage, db),
     poll: () => pollAllVehicles(db, config.env),
     climate: () => runClimateKeepalive(db, config.env),

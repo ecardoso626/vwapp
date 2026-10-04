@@ -15,6 +15,7 @@ const PASSIVE_READ_PATHS = new Set([
   "/api/v1/owner",
   "/api/v1/vehicles",
   "/api/v1/messages",
+  "/api/v1/account",
 ]);
 
 export type EndpointClass = "public" | "pairing" | "read" | "control";

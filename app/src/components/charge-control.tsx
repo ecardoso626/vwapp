@@ -1,5 +1,6 @@
 import type { PassiveSnapshot } from "@/hooks/use-passive-data";
 import { useTransientError } from "@/hooks/use-transient-error";
+import { useLegacyControlGate } from "@/providers/legacy-control-provider";
 import { useThemeToggle } from "@/providers/theme-provider";
 import { orpc } from "@/rpc";
 import { formatMiles } from "@/units";
@@ -43,6 +44,7 @@ export function ChargeControl({
   uuid: string;
 }) {
   // The native picker/gauge need a resolved scheme to follow the in-app theme.
+  const { allowed } = useLegacyControlGate(uuid);
   const { pref } = useThemeToggle();
   const theme = useTheme();
   const start = useMutation(orpc.vehicle.chargeStart.mutationOptions());
@@ -113,9 +115,9 @@ export function ChargeControl({
         {charging ? (
           <IosButton
             tone="red"
-            disabled={stop.isPending}
+            disabled={!allowed || stop.isPending}
             onPress={() => {
-              stop.mutate({ uuid });
+              if (allowed) stop.mutate({ uuid });
             }}
             label={stop.isPending ? "Stopping…" : "Stop"}
           />
@@ -123,9 +125,9 @@ export function ChargeControl({
           <IosButton
             tone="green"
             icon="bolt.car.fill"
-            disabled={start.isPending}
+            disabled={!allowed || start.isPending}
             onPress={() => {
-              start.mutate({ uuid });
+              if (allowed) start.mutate({ uuid });
             }}
             label={start.isPending ? "Starting…" : "Charge"}
           />
@@ -142,13 +144,13 @@ export function ChargeControl({
               <Picker
                 selection={carLimit}
                 onSelectionChange={(next) => {
-                  if (next !== carLimit && !setLimit.isPending) {
+                  if (allowed && next !== carLimit && !setLimit.isPending) {
                     setLimit.mutate({ uuid, targetSoc: next });
                   }
                 }}
                 modifiers={[
                   pickerStyle("menu"),
-                  disabledModifier(setLimit.isPending),
+                  disabledModifier(!allowed || setLimit.isPending),
                 ]}
               >
                 {limitOptions.map((v) => (

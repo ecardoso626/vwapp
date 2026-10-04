@@ -6,16 +6,9 @@ import type { contract } from "@vwapp/contract";
 import Constants from "expo-constants";
 import { db } from "./db";
 
-/**
- * EXPO_PUBLIC_API_URL points at the deployed Worker (e.g.
- * https://vwapp-api.<your-subdomain>.workers.dev/rpc) and is required for any
- * published build — set it per-deployer in app/.env. Otherwise, when served by
- * a Metro dev server, target the Worker dev server on the same machine (hostUri
- * is the Metro host — localhost for a simulator, the LAN IP for a physical
- * device). A published bundle (EAS Update) has no dev server, so it must rely on
- * EXPO_PUBLIC_API_URL; with neither present we fail loudly rather than guess.
- */
-function resolveApiUrl(): string {
+/** Optional Worker URL for existing transitional controls and signed map URLs.
+ * Node account setup and passive reads never require this configuration. */
+function resolveApiUrl(): string | null {
   const override = process.env.EXPO_PUBLIC_API_URL;
   if (override !== undefined && override !== "") return override;
   const hostUri = Constants.expoConfig?.hostUri;
@@ -23,20 +16,22 @@ function resolveApiUrl(): string {
     const host = hostUri.split(":")[0];
     if (host !== undefined && host !== "") return `http://${host}:8787/rpc`;
   }
-  throw new Error(
-    "Set EXPO_PUBLIC_API_URL in app/.env to your deployed Worker URL (e.g. https://vwapp-api.<subdomain>.workers.dev/rpc)",
-  );
+  return null; // Optional transitional controls configuration.
 }
 
 /** Exported for display in Settings — "which backend am I talking to?". */
 export const API_URL = resolveApiUrl();
 
 const link = new RPCLink({
-  url: API_URL,
+  url: () => {
+    if (API_URL === null || db === null)
+      throw new Error("Legacy controls are not configured.");
+    return API_URL;
+  },
   // The Worker verifies this Instant guest token to identify the user.
   headers: async () => {
-    const user = await db.getAuth();
-    return user === null
+    const user = await db?.getAuth();
+    return user == null
       ? {}
       : { authorization: `Bearer ${user.refresh_token}` };
   },
