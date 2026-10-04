@@ -17,7 +17,8 @@
     "format:check": "prettier --check .",
     "node:build": "esbuild node/main.ts --bundle --platform=node --format=esm --target=node22 --main-fields=module,main --outfile=../dist/node/main.mjs",
     "node:start": "pnpm run node:build && node ../dist/node/main.mjs",
-    "node:test": "node --import ./tests/register.mjs --test node/tests/*.test.mjs"
+    "node:test": "node --import ./tests/register.mjs --test node/tests/*.test.mjs",
+    "storage:test": "node --import ./tests/register.mjs --test storage/tests/*.test.mjs"
   },
   "dependencies": {
     "@instantdb/admin": "^1.0.52",

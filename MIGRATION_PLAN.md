@@ -6,6 +6,8 @@ Inspection date: 2026-10-02, America/Chicago. Repository: [ecardoso626/vwapp](ht
 
 **Phase 4 update:** A Node HTTP composition root now reuses the existing router, InstantDB store and scheduled jobs beside the unchanged Worker. Its scheduler is opt-in while both runtimes coexist, and its lifecycle is tested with synthetic services; see [Node runtime](docs/NODE_RUNTIME.md). No persistence or mobile cutover was started.
 
+**Phase 5 update:** An additive SQLite foundation now lives under `backend/storage/`: versioned transactional migrations, domain current state and observations, coarse samples, future command records, AES-256-GCM secret envelopes, rotation, and a WAL-safe backup API. It is tested with synthetic data and is not wired into production Worker/Node/InstantDB paths. See [SQLite storage](docs/SQLITE_STORAGE.md) and [analytics data foundation](docs/ANALYTICS_DATA_FOUNDATION.md). Node's built-in SQLite API avoids a package native addon but is experimental on the supported Node 22 line; validate the pinned ARM64 Linux image before deployment.
+
 **Phase 3 update:** The voice/AI vertical slice was removed from the mobile app, Worker, shared contract, configuration, and dependencies. The 54 existing offline VW tests and 13 adapter/domain tests remain the regression baseline. Phase 4 followed as a separate runtime step.
 
 **Phase 2 update:** The 54 existing offline VW tests are joined by 13 adapter/domain tests. A typed, additive VW adapter and conservative vehicle model now exist without changing current Worker/Instant call paths or VW protocol behavior; see [the domain model](docs/DOMAIN_MODEL.md). Phase 1.1 covered the main VW request and parsing paths plus charging, climate keepalive, wake and representative retries; see [VW protocol test coverage](docs/VW_PROTOCOL_TEST_COVERAGE.md). The Phase 0 baseline and its historical statements remain as recorded. Production VW behavior was not changed. [BuzzKey product identity](docs/PRODUCT_IDENTITY.md) now fixes the future native build identifiers, and [design direction](docs/design/DESIGN_DIRECTION.md) records the later UI goals.
@@ -22,16 +24,16 @@ Do not perform a Cloudflare/Instant substitution while preserving two frontend d
 
 ## 2. Technical feasibility and limits
 
-| Target                             | Finding                                                                                                                                                                                                                              |
-| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Native iPhone                      | Already a native Expo/RN app with SwiftUI islands and SF Symbols. No reason to replace the stack or use a PWA.                                                                                                                       |
-| Local Xcode/TestFlight without EAS | Feasible in principle with locally generated native project, CocoaPods, Xcode signing/archive and App Store Connect. This repository has no `ios/` project; native compilation has not been demonstrated in Phase 0.                 |
-| Node backend                       | Production VW client imports only DTO types and uses standard web APIs. The installed oRPC server explicitly exports `@orpc/server/node`. Worker entry, environment, background lifecycle and persistence adapters need replacement. |
-| SQLite                             | Appropriate for one owner, one vehicle and one writer process; no PostgreSQL justification. Native driver, ARM64 image and restore procedure require actual validation.                                                              |
-| Private HTTPS                      | Existing Tailscale plus Serve can provide a stable authenticated HTTPS origin without a public control API. Host configuration remains to be inspected during deployment.                                                            |
-| App-specific Nostr auth            | Feasible with maintained event/Schnorr primitives and a strict application NIP-98 policy. Not a drop-in substitute for guest auth: pairing, revocation, raw-body binding and persistent replay all matter.                           |
-| Zero new hosted infrastructure     | Remove Instant, Worker/AI, EAS and server Maps signing where appropriate. Existing Apple distribution and VW services remain; this is not an offline vehicle protocol. No new cloud accounts are required by the design.             |
-| Vehicle support                    | Source targets North American myVW/legacy Car-Net. It is not a generic VW-region adapter. Exact ID. Buzz capabilities and current endpoint acceptance require later explicitly authorized live validation.                           |
+| Target                             | Finding                                                                                                                                                                                                                                                       |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Native iPhone                      | Already a native Expo/RN app with SwiftUI islands and SF Symbols. No reason to replace the stack or use a PWA.                                                                                                                                                |
+| Local Xcode/TestFlight without EAS | Feasible in principle with locally generated native project, CocoaPods, Xcode signing/archive and App Store Connect. This repository has no `ios/` project; native compilation has not been demonstrated in Phase 0.                                          |
+| Node backend                       | Production VW client imports only DTO types and uses standard web APIs. The installed oRPC server explicitly exports `@orpc/server/node`. Worker entry, environment, background lifecycle and persistence adapters need replacement.                          |
+| SQLite                             | Appropriate for one owner, one vehicle and one writer process; no PostgreSQL justification. Phase 5 uses Node's built-in SQLite and tests backup/restore offline. The exact ARM64 Linux Node image and production restore procedure still require validation. |
+| Private HTTPS                      | Existing Tailscale plus Serve can provide a stable authenticated HTTPS origin without a public control API. Host configuration remains to be inspected during deployment.                                                                                     |
+| App-specific Nostr auth            | Feasible with maintained event/Schnorr primitives and a strict application NIP-98 policy. Not a drop-in substitute for guest auth: pairing, revocation, raw-body binding and persistent replay all matter.                                                    |
+| Zero new hosted infrastructure     | Remove Instant, Worker/AI, EAS and server Maps signing where appropriate. Existing Apple distribution and VW services remain; this is not an offline vehicle protocol. No new cloud accounts are required by the design.                                      |
+| Vehicle support                    | Source targets North American myVW/legacy Car-Net. It is not a generic VW-region adapter. Exact ID. Buzz capabilities and current endpoint acceptance require later explicitly authorized live validation.                                                    |
 
 ## 3. Baseline results and toolchain
 
@@ -501,8 +503,8 @@ Each phase is a separately reviewable change. Suggested checkpoint names below a
 
 ### Phase 5 — SQLite and encryption foundation
 
-- **Objective/files:** `db/` migrations/repositories and `security/` envelope service, using synthetic records only; select/pin ARM64-capable driver.
-- **Prerequisites/tests:** repository contracts; migration/transaction/foreign-key/dedupe/retention tests, AEAD vectors/tampering/wrong key/rotation, synthetic backup restore.
+- **Result/files:** `backend/storage/` provides one versioned schema, narrow repositories, AES-256-GCM envelopes, external-key rotation and SQLite backup. [Storage documentation](docs/SQLITE_STORAGE.md) records the schema and recovery contract. No production persistence flow changed.
+- **Validation:** synthetic offline migration, transaction, state/history, command, tampering, wrong-key, rotation and backup/restore tests. Retention remains a later operational decision; no analytics or live data import was attempted.
 - **Risks:** plaintext token persistence, WAL copying or native driver incompatibility; encryption required from first secret-bearing schema.
 - **Git checkpoint:** `phase5-encrypted-sqlite`.
 - **Rollback:** discard synthetic DB/revert code; never apply production schema downgrade implicitly.
@@ -619,7 +621,7 @@ These do not block Phase 0 or synthetic characterization:
 - Exact Umbrel data path, tailnet HTTPS hostname/Serve readiness, allowed devices and backup/key recovery location.
 - Default history/location retention and whether messages/climate session history matter long term.
 - Capability evidence for this ID. Buzz and which commands merit explicit biometric gating beyond unlock.
-- Nostr library/version/distribution, SQLite driver and pinned Node/CocoaPods versions after integration tests.
+- Nostr library/version/distribution and pinned Node/CocoaPods versions after integration tests; verify built-in SQLite on the exact ARM64 Linux image.
 - Whether native map replacement belongs in first native release or immediately after; APNs/widgets remain optional.
 - Whether later live auth/read validation is desired before broad migration investment. It must be separately authorized and must not quietly wake/control the vehicle.
 
@@ -628,10 +630,10 @@ These do not block Phase 0 or synthetic characterization:
 - **Native experience:** BuzzKey remains a TestFlight-distributed iPhone app. The intended Home, Analytics and Settings navigation, light/dark modes, orange accent, prominent status, Camp Mode and the concept image are recorded in [DESIGN_DIRECTION.md](docs/design/DESIGN_DIRECTION.md). No Phase 1 UI changes were made.
 - **Owner access:** The future app-specific device key/NIP-98 design should use iOS Keychain, Face ID with device-passcode fallback, and optional fresh authentication for sensitive actions such as unlock. The precise server-verifiable assurance model remains a later security design decision; no authentication was implemented in Phase 1.
 - **Apple Review/Demo Mode:** Reviewers must be able to use deterministic simulated state and controls with reviewer username/password supplied through App Store Connect, without Tailscale, the owner's Umbrel host, real VW credentials or the owner's vehicle. Put this behind an explicit environment/data-source boundary so demo requests cannot reach the real VW adapter or command scheduler. No review mode was implemented in Phase 1.
-- **Analytics:** Future first-class Analytics includes trips, miles, mi/kWh, battery/range/charging/climate history, and effects of outside temperature, speed, trip length and cabin setpoint. Any personalized model must distinguish measured variables from unavailable ones and avoid causal claims from correlation. Phase 1 chose no persistence schema. The provisional coarse-sampling/retention suggestions in sections 21–22 must be revisited before schema design so trip segmentation and multivariable analysis remain possible where VW supplies sufficient telemetry.
+- **Analytics:** Future first-class Analytics includes trips, miles, mi/kWh, battery/range/charging/climate history, and effects of outside temperature, speed, trip length and cabin setpoint. Any personalized model must distinguish measured variables from unavailable ones and avoid causal claims from correlation. Phase 5 adds meaningful-change history and coarse samples but no trip inference or energy measurement; see [analytics data foundation](docs/ANALYTICS_DATA_FOUNDATION.md). Retention and any additional telemetry sources require later review.
 
-## 34. Exact recommended next agent task (updated after Phase 4)
+## 34. Exact recommended next agent task (updated after Phase 5)
 
-> Implement **Phase 5 only** in `/Users/cardosofam/vwapp`: add a synthetic-data SQLite repository and versioned migration foundation with encryption for every reusable secret field, then test transactions, ciphertext tampering, key rotation and backup/restore offline. Keep Worker/InstantDB and Node mock paths buildable; do not cut over mobile, import real data, use VW credentials, or deploy.
+> Implement **Phase 6 only** in `/Users/cardosofam/vwapp`: add a synthetic, offline-tested device identity and authenticated HTTP boundary with pairing, revocation, replay protection, and request limits. Keep existing Worker/InstantDB and Node data paths functional; do not connect real VW credentials, migrate persistence/mobile data flow, or deploy.
 
-Phase 4 added the Node runtime beside the Worker. InstantDB and the current mobile data/control paths remain unchanged.
+Phase 5 added the SQLite foundation beside the existing runtimes. InstantDB and the current mobile data/control paths remain unchanged.

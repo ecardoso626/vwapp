@@ -15,7 +15,8 @@
     "format": "pnpm --recursive --parallel --aggregate-output run format",
     "backend:node": "pnpm --filter @vwapp/backend run node:start",
     "backend:node:build": "pnpm --filter @vwapp/backend run node:build",
-    "backend:node:test": "pnpm --filter @vwapp/backend run node:test"
+    "backend:node:test": "pnpm --filter @vwapp/backend run node:test",
+    "backend:storage:test": "pnpm --filter @vwapp/backend run storage:test"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",
