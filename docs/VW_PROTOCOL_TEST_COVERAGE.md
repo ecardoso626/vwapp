@@ -4,7 +4,7 @@ All VW tests are deterministic and offline. `backend/tests/register.mjs` install
 
 ## Retained protocol characterization
 
-The current `pnpm test:vw` suite runs 44 test cases, including adapter/domain cases. The core VW protocol cases in `backend/tests/auth.test.mjs`, `commands.test.mjs`, `session.test.mjs` and `status.test.mjs` remain intact apart from adapting the session test's persistence mock to the sole SQLite store interface. The production VW protocol source `backend/src/vw/client.ts` was not changed. The Worker-only router fixture and its 16 tests were removed because the Worker router no longer exists; equivalent permanent-path charging, climate/Camp, lock, wake and command/error coverage lives under `backend/node/tests/`. One mobile legacy Worker gate test was also removed because that provider was deleted.
+The current `pnpm test:vw` suite runs 44 test cases, including adapter/domain cases. The core VW protocol cases in `backend/tests/auth.test.mjs`, `commands.test.mjs`, `session.test.mjs` and `status.test.mjs` remain intact apart from adapting the session test's persistence mock to the sole SQLite store interface. The production VW protocol source `backend/src/vw/client.ts` was not changed. The Worker-only router fixture and its 23 expanded test cases were removed because the Worker router no longer exists; equivalent permanent-path charging, climate/Camp, lock, wake and command/error coverage lives under `backend/node/tests/`. One mobile legacy Worker gate test was also removed because that provider was deleted.
 
 | Area | Current offline evidence |
 | --- | --- |
