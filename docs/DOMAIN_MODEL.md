@@ -99,3 +99,9 @@ The adapter's status read does not itself implement `status.ts`'s forced carnet
 retry, and its command submissions do not claim physical completion. A future
 application service must preserve or deliberately redesign those policies
 before replacing current call sites.
+
+## Phase 8B durable lock command application model
+
+`packages/contract/src/lock-command.ts` adds typed strict `LockRequest` and `LockCommand` receipts. Lifecycle statuses are requested, submitting, accepted, waiting_for_vehicle, confirmed, failed, timed_out and unknown. Action expresses intent; the latest observation carries lock truth and fetch/source timestamps. Acceptance is correlation evidence, while confirmed requires both successful history and explicit matching source evidence captured at/after submission. Terminal completion is not necessarily success. Counters record reconciliation rounds and successful status reads.
+
+Migration 5 extends the Phase 5 ledger with device/key idempotency, private account/correlation identity and observed evidence. `NodeLockCommands` performs Node application orchestration using unchanged protocol functions. It never overwrites observed state with a requested target. The general VW adapter's conservative false-to-unknown behavior remains; the Node command boundary additionally recognizes positive per-door UNLOCKED evidence and treats contradictory lock evidence as unknown. Missing/stale capture timestamps cannot confirm execution. The old Worker optimistic snapshot behavior remains characterized, while the Node path corrects it. See [lock control semantics and recovery](LOCK_CONTROL_CUTOVER.md).

@@ -216,4 +216,37 @@ INSERT INTO owner_vw_connection(owner_id, account_id, state)
   SELECT owner_id, account_id, 'connected' FROM owner_account_link;
 `,
   },
+  {
+    version: 5,
+    name: "durable_lock_commands",
+    sql: `
+ALTER TABLE commands RENAME TO commands_v1;
+DROP INDEX commands_by_vehicle_time;
+DROP INDEX commands_by_correlation;
+CREATE TABLE commands (
+  id TEXT PRIMARY KEY,
+  vehicle_id TEXT NOT NULL REFERENCES vehicles(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL CHECK(kind IN ('lock','unlock','charge_start','charge_stop','charge_target','climate_start','climate_stop','climate_temperature')),
+  status TEXT NOT NULL CHECK(status IN ('requested','submitting','accepted','waiting_for_vehicle','confirmed','failed','timed_out','unknown','unconfirmed','cancelled')),
+  requested_at INTEGER NOT NULL, accepted_at INTEGER, completed_at INTEGER,
+  correlation_id TEXT, failure_code TEXT, failure_reason TEXT, requesting_device_id TEXT,
+  account_id TEXT REFERENCES accounts(id) ON DELETE CASCADE,
+  idempotency_key TEXT, requesting_pubkey TEXT, submitted_at INTEGER,
+  history_confirmed INTEGER CHECK(history_confirmed IN (0,1)),
+  observed_lock TEXT CHECK(observed_lock IN ('locked','unlocked','unknown')),
+  observed_fetched_at INTEGER, observed_source_at INTEGER,
+  confirmation_rounds INTEGER NOT NULL DEFAULT 0, status_reads INTEGER NOT NULL DEFAULT 0,
+  CHECK(accepted_at IS NULL OR accepted_at >= requested_at),
+  CHECK(completed_at IS NULL OR completed_at >= requested_at),
+  UNIQUE(requesting_device_id, idempotency_key)
+) STRICT;
+INSERT INTO commands(id,vehicle_id,kind,status,requested_at,accepted_at,completed_at,correlation_id,failure_code,failure_reason,requesting_device_id)
+SELECT id,vehicle_id,kind,status,requested_at,accepted_at,completed_at,correlation_id,failure_code,failure_reason,requesting_device_id FROM commands_v1;
+DROP TABLE commands_v1;
+CREATE INDEX commands_by_vehicle_time ON commands(vehicle_id, requested_at DESC);
+CREATE INDEX commands_by_correlation ON commands(vehicle_id, correlation_id);
+CREATE UNIQUE INDEX one_active_lock_command ON commands(vehicle_id)
+WHERE idempotency_key IS NOT NULL AND status IN ('requested','submitting','accepted','waiting_for_vehicle');
+`,
+  },
 ];

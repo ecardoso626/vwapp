@@ -37,6 +37,10 @@ export interface TelemetrySample {
 
 export type CommandStatus =
   | "requested"
+  | "submitting"
+  | "waiting_for_vehicle"
+  | "timed_out"
+  | "unknown"
   | "accepted"
   | "confirmed"
   | "failed"

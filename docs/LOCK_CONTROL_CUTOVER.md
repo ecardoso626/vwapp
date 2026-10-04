@@ -1,0 +1,55 @@
+# Phase 8B — Node lock/unlock cutover
+
+Only lock and unlock move to Node. The phone requires its paired BuzzKey device and a linked, usable Node VW connection, without Worker configuration or Instant identity. Charging, climate, wake, parked-map signing and the optional legacy control session retain their existing Worker paths. Scheduler defaults/logic and `backend/src/vw/client.ts` are unchanged. No deployment or live service validation occurred.
+
+## Authenticated API and receipt
+
+`packages/contract/src/lock-command.ts` defines strict request and typed public receipt schemas. `backend/node/lock-commands.ts` owns Node application orchestration; `backend/storage/lock-commands.ts` extends the existing Phase 5 ledger. Migration 5 preserves all prior rows/columns and migration checksums while adding lifecycle, request identity and observation evidence.
+
+| Operation               | Signed request                                                   | Meaning                                                                                                                                              |
+| ----------------------- | ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Lock/unlock             | `POST /api/v1/commands` with `{vehicleId,action,idempotencyKey}` | Atomically persist intent before scheduling work; new intent returns HTTP 202. Same device/key/operation returns the existing receipt with HTTP 200. |
+| Restore phone request   | `GET /api/v1/commands/key/:key`                                  | Device-bound lookup, SQLite only.                                                                                                                    |
+| Read command            | `GET /api/v1/commands/:id`                                       | Linked-owner/vehicle-scoped receipt, SQLite only.                                                                                                    |
+| Explicit reconciliation | `POST /api/v1/commands/:id/reconcile` with `{}`                  | History/status reads only for accepted uncertain/recovered commands. Never resubmit a lock/unlock PUT.                                               |
+
+Receipts contain local command/vehicle IDs, action, lifecycle timestamps, status, history-confirmation evidence, latest actual lock observation, normalized failure code and confirmation/read counters. They omit device/public key, idempotency key, account ID, VW correlation ID, VIN, credentials and tokens. Private command rows retain device/public key, key and VW correlation evidence. `completedAt` records a terminal outcome, not necessarily success. Control mutations use the existing stricter control limit; status reads use the read limit. The configured exact external HTTPS origin, signed method/body, authorized-device registry, revocation, replay checks and body limits remain mandatory. Authoritative SQLite account/vehicle association is resolved server-side; client VIN/reference or biometric flags are rejected. Node-only `/rpc/vehicle/command` returns 410 after authentication, including encoded/trailing-slash aliases. Worker routing is unchanged.
+
+## Lifecycle and observed truth
+
+| Status                | Evidence                                                                                                                              |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `requested`           | Durable intent exists; submission has not started.                                                                                    |
+| `submitting`          | Submission boundary recorded before invoking the existing S-PIN/lock protocol. A crash here cannot prove whether VW received the PUT. |
+| `accepted`            | Existing protocol returned a valid correlation ID; this is request acceptance, not physical execution.                                |
+| `waiting_for_vehicle` | Checking command history and actual status, or explicit reconciliation required after restart.                                        |
+| `confirmed`           | Successful command history **and** explicit matching lock evidence with a source timestamp at/after submission.                       |
+| `failed`              | Preparation failed, or VW explicitly rejected submission/completion.                                                                  |
+| `timed_out`           | Accepted command lacks sufficient confirmation within the bounded observation/deadline budget, including conflicting observed state.  |
+| `unknown`             | Submission response is ambiguous, confirmation unavailable, account changed, or restart interrupted a pre-acceptance stage.           |
+
+The Node layer never saves the requested target as vehicle state. Actual status reads update normalized current state/history through `VehicleRepository`; the old compatibility snapshot is not force-mutated. Positive `SECURE` evidence yields locked. A nonempty explicitly `UNLOCKED` door list yields unlocked when not contradictory; `SECURE` plus an unlocked door yields unknown. A bare legacy `locked:false`, missing evidence or timestamp cannot confirm unlock. The unchanged general VW adapter remains conservative about false lock values. Confirmation uses the door-lock source timestamp, falling back to the aggregate RVS capture timestamp; missing/stale timestamps cannot confirm a command. A freshly fetched old VW observation remains old evidence.
+
+The old Worker optimistic unlock remains characterized: eight unconfirmed history reads may still produce success and an unlocked compatibility snapshot. The new Node regression repeats all eight unconfirmed reads with locked status and proves `timed_out`, observed locked state and no optimistic snapshot write. History success alone and observation alone are insufficient. Mobile progress says “Locking…”, “Unlocking…”, “Waiting for vehicle…”, “Could not confirm”, or “Command failed”; the icon comes from the newest available actual observation, with unknown explicitly retained.
+
+## Idempotency, loss and restart
+
+Uniqueness is `(requesting_device_id,idempotency_key)`. Conflicting action/vehicle/account reuse returns 409. An active command per vehicle prevents simultaneous new intent; duplicate requests return the original row. Each new intent invokes the unchanged VW submission protocol at most once. No automatic PUT retry occurs after network failure, 401, missing correlation, server error or timeout ambiguity. A new key is an intentional new command and may run after a terminal outcome; an uncertain prior command may still execute physically.
+
+The phone persists only `{vehicleId,action,idempotencyKey}` in AsyncStorage, namespaced by configured origin, device public key and local vehicle ID, **before signing/submitting**. The dedicated private key stays in existing native secure storage. Concurrent taps coalesce; conflicting taps fail closed. Retries reuse the saved key with a fresh NIP-98 event. A lost mobile response after VW acceptance therefore retrieves the original command instead of submitting another PUT. App restart restores the same saved key. No automatic mutation retries or Worker fallback exist. An explicit dismiss clears only the phone's selected request; the server record remains. Unknown outcomes require a warning to check the car before choosing a new command.
+
+Startup maps interrupted `requested`/`submitting` rows to queryable `unknown`. Accepted/waiting rows remain `waiting_for_vehicle` with `reconciliation_required`. Startup sends no VW requests and never resubmits. The user can explicitly reconcile accepted rows using stored correlation evidence. Graceful shutdown stops new requests and drains bounded command jobs. Command rows and keys have **no automatic expiry or cleanup** in this phase. Existing cascading account/vehicle deletion can remove them; restore/erasure/retention policy must preserve idempotency when supporting retries. There is no all-time guarantee across deleting/restoring an older database.
+
+## Bounds and limitations
+
+Production defaults: eight existing history reads, 2.5-second spacing, up to three status reads, and a 60-second application deadline per submission/reconciliation round. Polling the public receipt reads SQLite only. Explicit reconciliation can start another bounded read-only round; it does not issue another control PUT. Receipt polling stops on terminal outcome or error. Account/device validity is checked before submission, and account ownership again across stages; revocation cannot undo an already issued command.
+
+The deadline fences subsequent application writes and confirmation. The unchanged VW client has no abort interface: a timed-out in-flight protocol call can finish later, including internal network work. The deadline does **not** prove physical cancellation or cancel internal client requests. Such outcomes remain uncertain; there is no automatic resubmission. Late results cannot convert the command to confirmed or overwrite vehicle state through the expired Node job. Shutdown does not claim to cancel a physical VW operation.
+
+The local `authorizeLocalUnlock()` hook runs before unlock signing and currently resolves without a biometric prompt. Existing explicit unlock confirmation remains. Face ID/passcode will be a future local-device gate; no server-trusted `faceIdVerified` field is introduced. Offline JavaScript tests/export do not prove native Keychain/AsyncStorage/biometric execution, real VW acceptance, TLS proxy configuration, simulator UI or physical vehicle behavior.
+
+## Offline verification
+
+Phase 8B adds 36 tests: 29 signed Node command tests, six mobile intent/presentation tests and one version-4-to-5 migration test. Coverage includes both actions' accepted/confirmed/conflicting/rejected/timed-out states, actual evidence/unknown/stale timestamps, the eight-read defect, durable identity and duplicate/lost-response/restart handling, four crash stages, explicit reconciliation, busy vehicle, transport/protocol ambiguity, application deadlines and late-result fencing, missing PIN, pairing/revocation/replay, authoritative ownership, strict payloads, control limits, private cache reads, sanitized errors/logs, retired Node alias and migration preservation. The existing 162 tests remain as regression coverage; all VW traffic uses the exact deterministic queue and unexpected requests fail even when legacy code catches them. No real credentials, secrets, service calls or database migration are used.
+
+Next scope is **Phase 8C charging-only cutover**: migrate mobile charging start/stop/target to signed Node using this durable command/idempotency boundary, preserving VW request construction and distinguishing acceptance from fresh observed charging/target evidence. Leave climate, wake, scheduler, deployment and cleanup untouched.

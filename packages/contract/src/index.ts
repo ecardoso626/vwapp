@@ -1,6 +1,8 @@
 import { oc } from "@orpc/contract";
 import { z } from "zod";
 
+export type { LockCommand, LockRequest } from "./lock-command.js";
+
 export type {
   AccountConnection,
   AccountAttempt,

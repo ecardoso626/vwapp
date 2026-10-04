@@ -5,6 +5,11 @@ import {
   type AccountConnection,
 } from "@vwapp/contract/account";
 import {
+  lockCommandSchema,
+  type LockCommand,
+  type LockRequest,
+} from "@vwapp/contract/lock-command";
+import {
   passiveCurrentSchema,
   passiveHistorySchema,
   passiveMessagesSchema,
@@ -27,7 +32,9 @@ export type BuzzKeyErrorCode =
   | "server_error"
   | "invalid_response"
   | "account_authentication_failed"
-  | "account_action_required";
+  | "account_action_required"
+  | "command_conflict"
+  | "command_missing";
 
 export class BuzzKeyApiError extends Error {
   readonly code: BuzzKeyErrorCode;
@@ -39,6 +46,10 @@ export class BuzzKeyApiError extends Error {
           "Device authorization was rejected. Pair or re-pair this device.",
         rate_limited: "Too many requests. Try again shortly.",
         server_error: "BuzzKey server could not complete the request.",
+        command_conflict:
+          "Another command is unresolved or this request conflicts. Check its status.",
+        command_missing:
+          "This command has not reached the server. Retry the saved request.",
         account_authentication_failed:
           "Volkswagen sign-in failed. Check your credentials.",
         account_action_required:
@@ -105,7 +116,13 @@ export function createBuzzKeyClient(options: BuzzKeyClientOptions) {
     if (response.status === 422)
       throw new BuzzKeyApiError("account_authentication_failed");
     if (response.status === 409)
-      throw new BuzzKeyApiError("account_action_required");
+      throw new BuzzKeyApiError(
+        path.startsWith("/api/v1/commands")
+          ? "command_conflict"
+          : "account_action_required",
+      );
+    if (response.status === 404 && path.startsWith("/api/v1/commands"))
+      throw new BuzzKeyApiError("command_missing");
     if (!response.ok) throw new BuzzKeyApiError("invalid_response");
     try {
       return (await response.json()) as unknown;
@@ -134,6 +151,28 @@ export function createBuzzKeyClient(options: BuzzKeyClientOptions) {
         name,
       });
       return parse(passivePairedSchema, result);
+    },
+    async requestLock(input: LockRequest): Promise<LockCommand> {
+      return parse(
+        lockCommandSchema,
+        await request("/api/v1/commands", "POST", input),
+      );
+    },
+    async lockCommandByKey(key: string): Promise<LockCommand> {
+      return parse(
+        lockCommandSchema,
+        await request(`/api/v1/commands/key/${encodeURIComponent(key)}`),
+      );
+    },
+    async reconcileLockCommand(id: string): Promise<LockCommand> {
+      return parse(
+        lockCommandSchema,
+        await request(
+          `/api/v1/commands/${encodeURIComponent(id)}/reconcile`,
+          "POST",
+          {},
+        ),
+      );
     },
     async account(): Promise<AccountConnection> {
       return parse(accountConnectionSchema, await request("/api/v1/account"));

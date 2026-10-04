@@ -5,6 +5,7 @@ import type { SqliteStorage } from "../storage/database";
 import { SecretRepository } from "../storage/secrets";
 import { NodeAccountApi } from "./account";
 import type { NodeConfig } from "./config";
+import { NodeLockCommands } from "./lock-commands";
 import { NodePassiveApi } from "./passive";
 import type { NodeServices } from "./runtime";
 import { NodeSqliteStore } from "./sqlite-store";
@@ -26,6 +27,7 @@ export function createNodeServices(
       config.publicOrigin,
     ),
     db,
+    commands: new NodeLockCommands(storage, db, config.env),
     account: new NodeAccountApi(storage, db, secrets, config.env),
     passive: new NodePassiveApi(storage, db),
     poll: () => pollAllVehicles(db, config.env),

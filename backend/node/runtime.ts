@@ -8,6 +8,7 @@ import type { Db } from "../src/application-store";
 import { router } from "../src/router";
 import type { NodeAccountApi } from "./account";
 import type { NodeConfig } from "./config";
+import type { NodeLockCommands } from "./lock-commands";
 import type { NodePassiveApi } from "./passive";
 import {
   createNodeScheduler,
@@ -21,6 +22,7 @@ export interface NodeServices extends SchedulerJobs {
   db: Db;
   passive?: NodePassiveApi;
   account?: NodeAccountApi;
+  commands?: NodeLockCommands;
 }
 
 export function createNodeRuntime(
@@ -78,6 +80,12 @@ export function createNodeRuntime(
 
     if (request.url?.startsWith("/api/v1/")) {
       const result =
+        services.commands?.handle(
+          request.method ?? "GET",
+          request.url,
+          decision.body,
+          decision.device,
+        ) ??
         (await services.account?.handle(
           request.method ?? "GET",
           request.url,
@@ -105,6 +113,7 @@ export function createNodeRuntime(
         "/rpc/auth/login",
         "/rpc/auth/checkCredentials",
         "/rpc/auth/logout",
+        "/rpc/vehicle/command",
       ].includes(
         decodeURIComponent((request.url ?? "").split("?")[0] ?? "").replace(
           /\/+$/,
@@ -201,6 +210,7 @@ export function createNodeRuntime(
       if (stopping !== null) return stopping;
       stopping = (async () => {
         const jobsDone = scheduler.stop();
+        const commandsDone = services.commands?.stop();
         if (listening) {
           await new Promise<void>((resolve, reject) => {
             server.close((error) => {
@@ -211,6 +221,7 @@ export function createNodeRuntime(
           listening = false;
         }
         await jobsDone;
+        await commandsDone;
       })();
       return stopping;
     },

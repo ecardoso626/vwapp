@@ -233,6 +233,13 @@ export default function Dashboard() {
             </IosCard>
           ) : null}
         </AnimatePresence>
+        {vehicle !== undefined ? (
+          <LockControl
+            vehicleId={vehicle.id}
+            locked={snapshot?.locked ?? null}
+            fetchedAt={snapshot?.fetchedAt ?? 0}
+          />
+        ) : null}
         {snapshot !== undefined && vehicle !== undefined ? (
           <StatusCards
             s={snapshot}
@@ -277,17 +284,16 @@ function StatusCards({
       {controlsEnabled ? (
         <>
           <ChargeControl s={s} uuid={uuid} />
-          <LockControl uuid={uuid} locked={s.locked ?? null} />
           <ClimateControl uuid={uuid} />
         </>
       ) : (
         <IosCard p="$4" gap="$2">
           <Paragraph color="$color10">
-            Vehicle controls still use the legacy Worker account.
+            Charging, climate and wake still use the legacy Worker account.
           </Paragraph>
           <IosButton
             tone="blue"
-            label="Sign in for controls"
+            label="Connect VW on BuzzKey"
             onPress={() => {
               router.push("/login");
             }}

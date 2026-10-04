@@ -1,44 +1,131 @@
-import { useTransientError } from "@/hooks/use-transient-error";
-import { useLegacyControlGate } from "@/providers/legacy-control-provider";
-import { orpc } from "@/rpc";
-import { useMutation } from "@tanstack/react-query";
+import { requireBuzzKey } from "@/buzzkey-native";
+import { lockPresentation } from "@/lock-intent";
+import {
+  clearLockIntent,
+  pendingLockIntent,
+  requestNodeLock,
+} from "@/lock-intent-native";
+import { useSession } from "@/providers/session-provider";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  lockCommandTerminal,
+  type LockCommand,
+  type LockRequest,
+} from "@vwapp/contract/lock-command";
+import { useEffect } from "react";
 import { Alert } from "react-native";
-import { AnimatePresence, Paragraph, Spinner, Text, XStack } from "tamagui";
+import { Paragraph, Spinner, Text, XStack, YStack } from "tamagui";
 import { IosButton, IosCard } from "./ios-list";
 import { SfIcon } from "./sf-icon";
 
-/**
- * Lock/unlock control for one vehicle. State comes from the latest snapshot
- * (`locked`); the command RPC waits for VW to confirm before resolving, so a
- * fresh snapshot — and the true state — has landed by the time the spinner
- * stops. Unlocking asks for confirmation since it exposes the car.
- */
+/** Every icon/state comes from observed data; intent affects progress text only. */
 export function LockControl({
-  uuid,
+  vehicleId,
   locked,
+  fetchedAt,
 }: {
-  uuid: string;
+  vehicleId: string;
   locked: boolean | null;
+  fetchedAt: number;
 }) {
-  const { allowed } = useLegacyControlGate(uuid);
-  const command = useMutation(orpc.vehicle.command.mutationOptions());
-  const shownError = useTransientError(command.error);
-
-  const pending = command.isPending;
-  const inFlight = pending ? command.variables.action : undefined;
-  // While a command runs, show its intended outcome; otherwise the snapshot.
-  const shownLocked = inFlight !== undefined ? inFlight === "lock" : locked;
-
-  const run = (action: "lock" | "unlock") => {
-    if (allowed) command.mutate({ uuid, action });
+  const { connection } = useSession();
+  const allowed =
+    connection?.linked === true &&
+    connection.state === "connected" &&
+    connection.session === "usable";
+  const queryClient = useQueryClient();
+  const intentKey = ["buzzkey", "lock-intent", vehicleId];
+  const intent = useQuery({
+    queryKey: intentKey,
+    queryFn: () => pendingLockIntent(vehicleId),
+    retry: false,
+  });
+  const statusKey = [
+    "buzzkey",
+    "lock-command",
+    vehicleId,
+    intent.data?.idempotencyKey ?? "",
+  ];
+  const status = useQuery({
+    queryKey: statusKey,
+    queryFn: () =>
+      requireBuzzKey().lockCommandByKey(intent.data?.idempotencyKey ?? ""),
+    enabled: allowed && intent.data != null,
+    retry: false,
+    refetchInterval: (query) =>
+      query.state.error !== null ||
+      (query.state.data !== undefined &&
+        lockCommandTerminal(query.state.data.status))
+        ? false
+        : 1500,
+  });
+  const request = useMutation({
+    mutationFn: (action: LockRequest["action"]) =>
+      requestNodeLock(vehicleId, action, (prepared) => {
+        queryClient.setQueryData(intentKey, prepared);
+      }),
+    retry: false,
+    onSuccess: (receipt) => {
+      const saved = queryClient.getQueryData<LockRequest>(intentKey);
+      if (saved !== undefined)
+        queryClient.setQueryData(
+          ["buzzkey", "lock-command", vehicleId, saved.idempotencyKey],
+          receipt,
+        );
+    },
+  });
+  const reconcile = useMutation({
+    mutationFn: (command: LockCommand) =>
+      requireBuzzKey().reconcileLockCommand(command.id),
+    retry: false,
+    onSuccess: () => {
+      void status.refetch();
+    },
+  });
+  const forget = useMutation({
+    mutationFn: () => clearLockIntent(vehicleId),
+    retry: false,
+    onSuccess: () => {
+      queryClient.setQueryData(intentKey, null);
+      request.reset();
+      reconcile.reset();
+    },
+  });
+  useEffect(() => {
+    if (
+      status.data !== undefined &&
+      ["confirmed", "failed"].includes(status.data.status)
+    )
+      void queryClient.invalidateQueries({ queryKey: ["buzzkey", "vehicles"] });
+  }, [status.data, queryClient]);
+  const command = status.data;
+  const presentation = lockPresentation(
+    command,
+    {
+      lock: locked === null ? "unknown" : locked ? "locked" : "unlocked",
+      fetchedAt,
+    },
+    request.isPending,
+    request.variables ?? intent.data?.action ?? "lock",
+  );
+  const unresolved = intent.data != null;
+  const error =
+    intent.error ??
+    request.error ??
+    reconcile.error ??
+    forget.error ??
+    status.error;
+  const pending =
+    request.isPending ||
+    reconcile.isPending ||
+    (command !== undefined && !lockCommandTerminal(command.status));
+  const run = (action: LockRequest["action"]) => {
+    if (allowed && !unresolved && !pending) request.mutate(action);
   };
-
-  // Native UIAlertController; unlocking exposes the car, so it's worth a
-  // second tap.
-  const confirmUnlock = () => {
+  const unlock = () => {
     Alert.alert(
       "Unlock the doors?",
-      "Anyone nearby will be able to open your vehicle until it's locked again.",
+      "Anyone nearby will be able to open your vehicle until it is locked again.",
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -50,74 +137,134 @@ export function LockControl({
       ],
     );
   };
-
-  const stateLabel =
-    inFlight === "lock"
-      ? "Locking…"
-      : inFlight === "unlock"
-        ? "Unlocking…"
-        : shownLocked === null
-          ? "Status unknown"
-          : shownLocked
-            ? "Locked"
-            : "Unlocked";
-
-  const iconName =
-    shownLocked === false
-      ? ("lock.open.fill" as const)
-      : ("lock.fill" as const);
-  const iconColor =
-    shownLocked === false ? "$red10" : shownLocked ? "$green10" : "$color10";
-
+  const retry = () => {
+    if (!allowed || intent.data == null) return;
+    const action = intent.data.action;
+    if (action === "unlock")
+      Alert.alert(
+        "Retry the saved unlock request?",
+        "The same request key will be reused; this does not create a second command.",
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Check / retry",
+            onPress: () => {
+              request.mutate(action);
+            },
+          },
+        ],
+      );
+    else request.mutate(action);
+  };
+  const resolve = () => {
+    const uncertain =
+      command === undefined ||
+      command.status === "unknown" ||
+      command.status === "timed_out";
+    Alert.alert(
+      uncertain ? "Resolve uncertain request?" : "Dismiss command result?",
+      uncertain
+        ? "The vehicle may still execute the old command. Check the car before choosing a new command. This clears only this phone's saved request; the server record remains."
+        : "The server keeps the command record and idempotency key.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Dismiss",
+          onPress: () => {
+            forget.mutate();
+          },
+        },
+      ],
+    );
+  };
   return (
     <IosCard p="$4" gap="$3">
-      {/* Single row: state on the left, the opposite action inline on the
-          right (both actions when the state is unknown, so the user is never
-          stuck). */}
       <XStack items="center" gap="$3">
-        <SfIcon name={iconName} color={iconColor} size={26} />
-        <Paragraph flex={1} color="$color" fontWeight="700" fontSize="$6">
-          {stateLabel}
-        </Paragraph>
+        <SfIcon
+          name={
+            presentation.lock === "unlocked" ? "lock.open.fill" : "lock.fill"
+          }
+          color={
+            presentation.lock === "unlocked"
+              ? "$red10"
+              : presentation.lock === "locked"
+                ? "$green10"
+                : "$color10"
+          }
+          size={26}
+        />
+        <YStack flex={1}>
+          <Paragraph color="$color" fontWeight="700" fontSize="$6">
+            {presentation.label}
+          </Paragraph>
+          {command !== undefined && command.status !== "confirmed" ? (
+            <Paragraph color="$color10" fontSize="$2">
+              Observed: {presentation.physicalLabel}
+            </Paragraph>
+          ) : null}
+        </YStack>
         {pending ? <Spinner color="$color10" /> : null}
-        {shownLocked !== false ? (
+        {!unresolved && presentation.lock !== "unlocked" ? (
           <IosButton
             tone="blue"
-            icon="lock.open.fill"
-            disabled={!allowed || pending}
-            onPress={confirmUnlock}
             label="Unlock"
+            disabled={!allowed || intent.isPending || pending}
+            onPress={unlock}
           />
         ) : null}
-        {shownLocked !== true ? (
+        {!unresolved && presentation.lock !== "locked" ? (
           <IosButton
             tone="green"
-            icon="lock.fill"
-            disabled={!allowed || pending}
+            label="Lock"
+            disabled={!allowed || intent.isPending || pending}
             onPress={() => {
               run("lock");
             }}
-            label="Lock"
           />
         ) : null}
       </XStack>
-
-      <AnimatePresence>
-        {shownError ? (
-          <Text
-            key="cmd-error"
-            selectable
-            color="$red10"
-            fontSize="$2"
-            transition="quick"
-            animateOnly={["opacity"]}
-            enterStyle={{ opacity: 0 }}
-            exitStyle={{ opacity: 0 }}
-          >
-            {shownError.message}
-          </Text>
-        ) : null}
-      </AnimatePresence>
+      {!allowed ? (
+        <Paragraph color="$color10">
+          Connect or reconnect VW on BuzzKey to use lock controls.
+        </Paragraph>
+      ) : null}
+      {unresolved ? (
+        <XStack gap="$2">
+          <IosButton
+            tone="blue"
+            label="Check / retry request"
+            disabled={!allowed || pending}
+            onPress={retry}
+          />
+          {command?.acceptedAt != null &&
+          ["unknown", "timed_out", "waiting_for_vehicle"].includes(
+            command.status,
+          ) ? (
+            <IosButton
+              tone="blue"
+              label="Check vehicle"
+              disabled={!allowed || reconcile.isPending || request.isPending}
+              onPress={() => {
+                reconcile.mutate(command);
+              }}
+            />
+          ) : null}
+          {command === undefined || lockCommandTerminal(command.status) ? (
+            <IosButton
+              tone="blue"
+              variant="plain"
+              label="Dismiss result"
+              disabled={request.isPending || forget.isPending}
+              onPress={resolve}
+            />
+          ) : null}
+        </XStack>
+      ) : null}
+      {error !== null ? (
+        <Text color="$red10" fontSize="$2">
+          {error.message}
+        </Text>
+      ) : null}
     </IosCard>
   );
 }

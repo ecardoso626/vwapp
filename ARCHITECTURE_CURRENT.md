@@ -176,3 +176,7 @@ No tracked or existing `ios/`, `app/ios/`, Android native project, Dockerfile, C
 - Existing UI already has native sheets and SF Symbols; these are opportunities to keep, not an unbuilt rewrite requirement.
 - Existing `auth-check` mutates hosted identity despite “no VW traffic”; status smoke wakes, and the PoC script named `lock` defaults to **unlock** without an action argument.
 - No source fixes, command changes, dependency removals, credential setup, account creation, native generation, signing changes or deployments were performed in Phase 0.
+
+## Phase 8B — current lock boundary
+
+Mobile lock/unlock now uses `createBuzzKeyClient` with NIP-98 Node routes, independent of Worker/Instant guest identity. `NodeLockCommands` orchestrates the unchanged VW S-PIN/lock/history/status calls; `LockCommandRepository` extends the existing SQLite command ledger through migration 5. The phone persists a nonsecret intent key before signing and restores it after loss/restart. Actual observed state remains separate from intent, and Node's old optimistic `/rpc/vehicle/command` alias is retired. Worker lock behavior remains available to old clients and covered by its existing tests. Charging/climate/wake, map signing, legacy optional control identity and scheduler defaults are unchanged. See [lock cutover](docs/LOCK_CONTROL_CUTOVER.md). This is local implementation only, with no live VW calls or deployment.
