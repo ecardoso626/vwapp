@@ -1,11 +1,7 @@
 import { createServer, type Server } from "node:http";
-import { onError } from "@orpc/server";
-import { RPCHandler } from "@orpc/server/fetch";
-import { CORSPlugin } from "@orpc/server/plugins";
 import { authenticateHttpRequest, authHttpError } from "../auth/http";
 import type { DeviceAuthService } from "../auth/service";
 import type { Db } from "../src/application-store";
-import { router } from "../src/router";
 import type { NodeAccountApi } from "./account";
 import type { NodeConfig } from "./config";
 import type { NodeLockCommands } from "./lock-commands";
@@ -15,7 +11,6 @@ import {
   type SchedulerClock,
   type SchedulerJobs,
 } from "./scheduler";
-import { OWNER_ID } from "./sqlite-store";
 
 export interface NodeServices extends SchedulerJobs {
   auth: DeviceAuthService;
@@ -30,17 +25,6 @@ export function createNodeRuntime(
   services: NodeServices,
   options: { clock?: SchedulerClock; intervalMs?: number } = {},
 ) {
-  const handler = new RPCHandler(router, {
-    plugins: [new CORSPlugin()],
-    interceptors: [
-      onError((error) => {
-        console.error(
-          "[node] RPC error",
-          error instanceof Error ? error.name : "unknown",
-        );
-      }),
-    ],
-  });
   const scheduler = createNodeScheduler(services, options);
   const handleRequest = async (
     request: import("node:http").IncomingMessage,
@@ -106,81 +90,11 @@ export function createNodeRuntime(
       return;
     }
 
-    // Retire Node's legacy account mutations: the safe account API owns
-    // connection metadata and never exposes raw upstream credential errors.
-    if (
-      [
-        "/rpc/auth/login",
-        "/rpc/auth/checkCredentials",
-        "/rpc/auth/logout",
-        "/rpc/vehicle/command",
-        "/rpc/vehicle/chargeStart",
-        "/rpc/vehicle/chargeStop",
-        "/rpc/vehicle/setChargeLimit",
-        "/rpc/vehicle/climateStart",
-        "/rpc/vehicle/climateStop",
-        "/rpc/vehicle/climateInfo",
-        "/rpc/vehicle/refresh",
-      ].includes(
-        decodeURIComponent((request.url ?? "").split("?")[0] ?? "").replace(
-          /\/+$/,
-          "",
-        ),
-      )
-    ) {
-      response.writeHead(410, {
-        "content-type": "application/json",
-        "cache-control": "private, no-store",
-      });
-      response.end('{"error":"account_api_required"}');
-      return;
-    }
-
-    const headers = new Headers();
-    for (const [name, value] of Object.entries(request.headers)) {
-      if (
-        value === undefined ||
-        [
-          "authorization",
-          "x-instant-token",
-          "host",
-          "content-length",
-          "connection",
-          "transfer-encoding",
-        ].includes(name)
-      )
-        continue;
-      if (Array.isArray(value))
-        value.forEach((item) => {
-          headers.append(name, item);
-        });
-      else headers.set(name, value);
-    }
-    const rpcRequest = new Request(decision.signedUrl, {
-      method: request.method ?? "GET",
-      headers,
-      ...(decision.body.length === 0
-        ? {}
-        : { body: new Uint8Array(decision.body) }),
+    response.writeHead(404, {
+      "content-type": "application/json",
+      "cache-control": "private, no-store",
     });
-    const { matched, response: rpcResponse } = await handler.handle(
-      rpcRequest,
-      {
-        prefix: "/rpc",
-        context: { env: config.env, db: services.db, userId: OWNER_ID },
-      },
-    );
-    if (!matched) {
-      response.writeHead(404);
-      response.end("Not found");
-      return;
-    }
-    const outboundHeaders: Record<string, string> = {};
-    rpcResponse.headers.forEach((value, name) => {
-      outboundHeaders[name] = value;
-    });
-    response.writeHead(rpcResponse.status, outboundHeaders);
-    response.end(Buffer.from(await rpcResponse.arrayBuffer()));
+    response.end('{"error":"not_found"}');
   };
   const server: Server = createServer((request, response) => {
     void handleRequest(request, response).catch((error: unknown) => {

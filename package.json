@@ -3,11 +3,9 @@
   "version": "0.0.0",
   "license": "MIT",
   "scripts": {
-    "dev": "pnpm --filter @vwapp/backend run dev",
+    "dev": "pnpm --filter @vwapp/backend run node:start",
     "ios": "pnpm --filter @vwapp/mobile run ios",
     "version": "node scripts/version.mts",
-    "publish:ios": "pnpm --filter @vwapp/mobile run publish:ios",
-    "deploy": "pnpm --filter @vwapp/backend run deploy",
     "test": "tsc --noEmit -p scripts/tsconfig.json && eslint scripts && pnpm --recursive --parallel --aggregate-output run \"/^(typecheck|lint|format:check)$/\"",
     "test:vw": "node --import ./backend/tests/register.mjs --test backend/tests/*.test.mjs",
     "typecheck": "tsc --noEmit -p scripts/tsconfig.json && pnpm --recursive --parallel run typecheck",
@@ -17,7 +15,8 @@
     "backend:node:build": "pnpm --filter @vwapp/backend run node:build",
     "backend:node:test": "pnpm --filter @vwapp/backend run node:test",
     "backend:storage:test": "pnpm --filter @vwapp/backend run storage:test",
-    "backend:auth:test": "pnpm --filter @vwapp/backend run auth:test"
+    "backend:auth:test": "pnpm --filter @vwapp/backend run auth:test",
+    "container:build": "pnpm backend:node:build && pnpm --filter @vwapp/backend auth:admin:build && docker build --platform linux/arm64 -t buzzkey-backend:local ."
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",
@@ -33,7 +32,6 @@
   "pnpm": {
     "onlyBuiltDependencies": [
       "esbuild",
-      "workerd",
       "unrs-resolver"
     ],
     "ignoredBuiltDependencies": [

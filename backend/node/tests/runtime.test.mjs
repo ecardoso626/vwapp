@@ -15,6 +15,7 @@ import {
 import { SqliteStorage } from "../../storage/database.ts";
 import { SecretRepository } from "../../storage/secrets.ts";
 import { loadNodeConfig } from "../config.ts";
+import { NodePassiveApi } from "../passive.ts";
 import { createNodeRuntime, installShutdownSignals } from "../runtime.ts";
 import { createNodeScheduler, POLL_INTERVAL_MS } from "../scheduler.ts";
 import { NodeSqliteStore } from "../sqlite-store.ts";
@@ -93,14 +94,16 @@ function fakeServices() {
   const devices = new DeviceRepository(storage);
   devices.pair(devices.issuePairing(nowMs), pubkeyA, "Synthetic iPhone", nowMs);
   const key = Buffer.alloc(32, 7);
+  const db = new NodeSqliteStore(
+    storage,
+    new SecretRepository(storage, "synthetic-key", key),
+    key.toString("base64"),
+  );
   return {
     services: {
+      passive: new NodePassiveApi(storage, db),
       auth: new DeviceAuthService(devices, origin, () => nowMs),
-      db: new NodeSqliteStore(
-        storage,
-        new SecretRepository(storage, "synthetic-key", key),
-        key.toString("base64"),
-      ),
+      db,
       poll: () => Promise.resolve(),
       climate: () => Promise.resolve(),
     },
@@ -116,13 +119,14 @@ test("validated config separates required secrets from optional Node settings", 
   assert.equal(config.sqlitePath, ":memory:");
   assert.equal(config.schedulerEnabled, false);
   assert.equal(
-    loadNodeConfig({ ...syntheticEnv, NODE_SCHEDULER_ENABLED: "true" }, "test")
-      .schedulerEnabled,
+    loadNodeConfig(
+      { ...syntheticEnv, BUZZKEY_SCHEDULER_ENABLED: "true" },
+      "test",
+    ).schedulerEnabled,
     true,
   );
   assert.equal(config.env.CREDS_ENC_KEY, syntheticEnv.BUZZKEY_MASTER_KEY_B64);
   assert.equal(config.masterKeyId, "synthetic-key");
-  assert.equal(config.env.APPLE_MAPS_TEAM_ID, undefined);
 });
 test("invalid config fails clearly without printing secret values", () => {
   assert.throws(
@@ -307,7 +311,7 @@ test("Node runtime arms the scheduler only after listening and disarms it on sto
   await settle();
   assert.equal(polls, 1);
 });
-test("known oRPC request routes through the real router with mock identity", async () => {
+test("signed Node owner API succeeds and retired RPC route is unavailable", async () => {
   const mocks = fakeServices();
   const runtime = createNodeRuntime(
     loadNodeConfig(syntheticEnv, "test"),
@@ -315,33 +319,25 @@ test("known oRPC request routes through the real router with mock identity", asy
   );
   const { port } = await runtime.start();
   try {
-    const response = await localRequest(port, "/rpc/vehicle/parkedMapUrl", {
-      method: "POST",
-      authorization: signedRequest({
-        method: "POST",
-        target: "/rpc/vehicle/parkedMapUrl",
-        body: Buffer.from(
-          JSON.stringify({
-            json: {
-              lat: 41,
-              lng: -87,
-              widthPt: 300,
-              heightPt: 200,
-              dark: false,
-            },
-          }),
-        ),
-      }).request.authorization,
-      body: { lat: 41, lng: -87, widthPt: 300, heightPt: 200, dark: false },
+    const path = "/api/v1/owner";
+    const response = await localRequest(port, path, {
+      authorization: signedRequest({ method: "GET", target: path }).request
+        .authorization,
     });
     assert.equal(response.status, 200, response.text);
-    assert.deepEqual(JSON.parse(response.text), { json: { url: null } });
+    assert.equal(JSON.parse(response.text).accountLinked, false);
+    const retired = "/rpc/vehicle/parkedMapUrl";
+    const gone = await localRequest(port, retired, {
+      authorization: signedRequest({ method: "GET", target: retired }).request
+        .authorization,
+    });
+    assert.equal(gone.status, 404);
   } finally {
     await runtime.stop();
     mocks.close();
   }
 });
-test("guest token alone cannot use the protected RPC procedure", async () => {
+test("legacy guest token alone cannot use the protected Node API", async () => {
   const mocks = fakeServices();
   const runtime = createNodeRuntime(
     loadNodeConfig(syntheticEnv, "test"),
@@ -349,10 +345,9 @@ test("guest token alone cannot use the protected RPC procedure", async () => {
   );
   const { port } = await runtime.start();
   try {
-    const response = await localRequest(port, "/rpc/vehicle/parkedMapUrl", {
-      method: "POST",
+    const response = await localRequest(port, "/api/v1/owner", {
+      method: "GET",
       token: "synthetic-guest-token",
-      body: { lat: 41, lng: -87, widthPt: 300, heightPt: 200, dark: false },
     });
     assert.equal(response.status, 401);
   } finally {

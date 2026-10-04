@@ -25,10 +25,16 @@ function service(t) {
 test("endpoint classes reserve public health and pairing; unknown is control", () => {
   assert.equal(classifyEndpoint("GET", "/health"), "public");
   assert.equal(classifyEndpoint("POST", "/auth/pair"), "pairing");
-  assert.equal(classifyEndpoint("POST", "/rpc/vehicle/activity"), "read");
-  assert.equal(classifyEndpoint("POST", "/rpc/vehicle/command"), "control");
-  assert.equal(classifyEndpoint("POST", "/rpc/vehicle/refresh"), "control");
-  assert.equal(classifyEndpoint("POST", "/rpc/unknown"), "control");
+  assert.equal(classifyEndpoint("GET", "/api/v1/messages"), "read");
+  assert.equal(
+    classifyEndpoint("POST", "/api/v1/vehicles/synthetic/commands"),
+    "control",
+  );
+  assert.equal(
+    classifyEndpoint("POST", "/api/v1/vehicles/synthetic/wake"),
+    "control",
+  );
+  assert.equal(classifyEndpoint("POST", "/api/v1/unknown"), "control");
 });
 
 test("candidate key is unauthorized until signed single-use pairing succeeds", (t) => {

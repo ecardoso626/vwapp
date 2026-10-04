@@ -1,24 +1,36 @@
-/** Application persistence seam. Worker keeps the InstantDB implementation;
- * Node supplies the SQLite implementation at its composition root. */
+/** SQLite application persistence seam used by the Node composition root. */
 import type { StatusDTO, VehicleDTO } from "@vwapp/contract";
 import type { Sealed } from "./crypto";
-import type * as instantTypes from "./store";
-import type {
-  CarnetToken,
-  ClimateSession,
-  StoredAccount,
-  StoredUser,
-  StoredVehicle,
-} from "./store";
 import type { InboxMessage, VwTokens } from "./vw/client";
 
-export type {
-  CarnetToken,
-  ClimateSession,
-  StoredAccount,
-  StoredUser,
-  StoredVehicle,
-} from "./store";
+export interface StoredVehicle extends VehicleDTO {
+  id: string;
+}
+export interface CarnetToken {
+  token: string;
+  expiresAt: number;
+}
+export interface StoredAccount {
+  id: string;
+  sealed: Sealed;
+  tokens: VwTokens;
+  carnetTokens: Record<string, CarnetToken>;
+}
+export interface StoredUser {
+  id: string;
+  account: StoredAccount | null;
+  vehicles: StoredVehicle[];
+}
+export interface ClimateSession {
+  id: string;
+  tempF: number;
+  expiresAt: number;
+  startedAt: number;
+  state: string;
+  lastStartAt: number | null;
+  remainingMin: number | null;
+  pausedAt: number | null;
+}
 
 export interface SqliteApplicationStore {
   readonly kind: "sqlite";
@@ -95,46 +107,19 @@ export interface SqliteApplicationStore {
   ): Promise<boolean>;
 }
 
-export type Db = instantTypes.Db | SqliteApplicationStore;
-/** The Worker installs its existing InstantDB implementation at startup.
- * Keeping that import at the Worker entrypoint leaves it out of the Node bundle. */
-let instant: typeof import("./store") | null = null;
-export function registerInstantAdapter(
-  adapter: typeof import("./store"),
-): void {
-  instant = adapter;
-}
-function instantAdapter(): typeof import("./store") {
-  if (instant === null) throw new Error("InstantDB adapter not registered");
-  return instant;
-}
-const sqlite = (db: Db): db is SqliteApplicationStore =>
-  (db as unknown as { kind?: unknown }).kind === "sqlite";
+export type Db = SqliteApplicationStore;
 
-export const getUser = (db: Db, userId: string) =>
-  sqlite(db) ? db.getUser(userId) : instantAdapter().getUser(db, userId);
+export const getUser = (db: Db, userId: string) => db.getUser(userId);
 export const getAccountByUserKey = (db: Db, userKey: string) =>
-  sqlite(db)
-    ? db.getAccountByUserKey(userKey)
-    : instantAdapter().getAccountByUserKey(db, userKey);
-export const listAccounts = (db: Db) =>
-  sqlite(db) ? db.listAccounts() : instantAdapter().listAccounts(db);
+  db.getAccountByUserKey(userKey);
+export const listAccounts = (db: Db) => db.listAccounts();
 export const saveAccountSession = (
   db: Db,
   userKey: string,
   sealed: Sealed,
   tokens: VwTokens,
   vehicles: VehicleDTO[],
-) =>
-  sqlite(db)
-    ? db.saveAccountSession(userKey, sealed, tokens, vehicles)
-    : instantAdapter().saveAccountSession(
-        db,
-        userKey,
-        sealed,
-        tokens,
-        vehicles,
-      );
+) => db.saveAccountSession(userKey, sealed, tokens, vehicles);
 export const saveLogin = (
   db: Db,
   userId: string,
@@ -142,60 +127,36 @@ export const saveLogin = (
   sealed: Sealed,
   tokens: VwTokens,
   vehicles: VehicleDTO[],
-) =>
-  sqlite(db)
-    ? db.saveLogin(userId, userKey, sealed, tokens, vehicles)
-    : instantAdapter().saveLogin(db, userId, userKey, sealed, tokens, vehicles);
+) => db.saveLogin(userId, userKey, sealed, tokens, vehicles);
 export const updateTokens = (db: Db, accountId: string, tokens: VwTokens) =>
-  sqlite(db)
-    ? db.updateTokens(accountId, tokens)
-    : instantAdapter().updateTokens(db, accountId, tokens);
+  db.updateTokens(accountId, tokens);
 export const saveCarnetToken = (
   db: Db,
   account: StoredAccount,
   uuid: string,
   entry: CarnetToken,
-) =>
-  sqlite(db)
-    ? db.saveCarnetToken(account, uuid, entry)
-    : instantAdapter().saveCarnetToken(db, account, uuid, entry);
+) => db.saveCarnetToken(account, uuid, entry);
 export const clearUserData = (db: Db, user: StoredUser) =>
-  sqlite(db)
-    ? db.clearUserData(user)
-    : instantAdapter().clearUserData(db, user);
+  db.clearUserData(user);
 export const saveSnapshot = (
   db: Db,
   vehicleId: string,
   status: StatusDTO,
   opts: { force?: boolean } = {},
-) =>
-  sqlite(db)
-    ? db.saveSnapshot(vehicleId, status, opts)
-    : instantAdapter().saveSnapshot(db, vehicleId, status, opts);
+) => db.saveSnapshot(vehicleId, status, opts);
 export const latestParkedAt = (db: Db, vehicleId: string) =>
-  sqlite(db)
-    ? db.latestParkedAt(vehicleId)
-    : instantAdapter().latestParkedAt(db, vehicleId);
+  db.latestParkedAt(vehicleId);
 export const pruneSnapshots = (db: Db, cutoffEpochMs: number) =>
-  sqlite(db)
-    ? db.pruneSnapshots(cutoffEpochMs)
-    : instantAdapter().pruneSnapshots(db, cutoffEpochMs);
+  db.pruneSnapshots(cutoffEpochMs);
 export const getActiveClimateSession = (db: Db, vehicleId: string) =>
-  sqlite(db)
-    ? db.getActiveClimateSession(vehicleId)
-    : instantAdapter().getActiveClimateSession(db, vehicleId);
+  db.getActiveClimateSession(vehicleId);
 export const listActiveClimateSessions = (db: Db) =>
-  sqlite(db)
-    ? db.listActiveClimateSessions()
-    : instantAdapter().listActiveClimateSessions(db);
+  db.listActiveClimateSessions();
 export const startClimateSession = (
   db: Db,
   vehicleId: string,
   fields: { tempF: number; expiresAt: number },
-) =>
-  sqlite(db)
-    ? db.startClimateSession(vehicleId, fields)
-    : instantAdapter().startClimateSession(db, vehicleId, fields);
+) => db.startClimateSession(vehicleId, fields);
 export const updateClimateSession = (
   db: Db,
   sessionId: string,
@@ -207,43 +168,24 @@ export const updateClimateSession = (
     error: string;
     pausedAt: number | null;
   }>,
-) =>
-  sqlite(db)
-    ? db.updateClimateSession(sessionId, fields)
-    : instantAdapter().updateClimateSession(db, sessionId, fields);
+) => db.updateClimateSession(sessionId, fields);
 export const endClimateSession = (db: Db, vehicleId: string, state: string) =>
-  sqlite(db)
-    ? db.endClimateSession(vehicleId, state)
-    : instantAdapter().endClimateSession(db, vehicleId, state);
+  db.endClimateSession(vehicleId, state);
 export const syncMessages = (
   db: Db,
   accountId: string,
   vw: InboxMessage[],
   complete: boolean,
-) =>
-  sqlite(db)
-    ? db.syncMessages(accountId, vw, complete)
-    : instantAdapter().syncMessages(db, accountId, vw, complete);
+) => db.syncMessages(accountId, vw, complete);
 export const setMessageReadOverride = (
   db: Db,
   accountId: string,
   messageId: string,
   override: boolean | null,
-) =>
-  sqlite(db)
-    ? db.setMessageReadOverride(accountId, messageId, override)
-    : instantAdapter().setMessageReadOverride(
-        db,
-        accountId,
-        messageId,
-        override,
-      );
+) => db.setMessageReadOverride(accountId, messageId, override);
 export const setMessageDeleted = (
   db: Db,
   accountId: string,
   messageId: string,
   deleted: boolean,
-) =>
-  sqlite(db)
-    ? db.setMessageDeleted(accountId, messageId, deleted)
-    : instantAdapter().setMessageDeleted(db, accountId, messageId, deleted);
+) => db.setMessageDeleted(accountId, messageId, deleted);

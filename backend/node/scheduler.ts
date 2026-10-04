@@ -1,4 +1,4 @@
-/** The Worker cron remains unchanged; this is the Node process's tick lifecycle. */
+/** Sole production scheduler; runs only when explicitly enabled. */
 export const POLL_INTERVAL_MS = 60_000;
 
 export interface SchedulerClock {

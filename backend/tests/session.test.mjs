@@ -38,11 +38,12 @@ const minted = () => [
 function dbMock() {
   const writes = [];
   const db = {
-    tx: {
-      vwAccounts: new Proxy({}, { get: () => ({ update: (data) => data }) }),
+    updateTokens: async (_accountId, tokens) => {
+      writes.push(tokens);
     },
-    transact: async (data) => {
-      writes.push(data);
+    saveCarnetToken: async (account, uuid, entry) => {
+      writes.push(entry);
+      account.carnetTokens[uuid] = entry;
     },
   };
   return { db, writes };
@@ -146,7 +147,7 @@ test("carnet cache re-mints near three-minute margin, persists token and reuses 
     assert.equal(await ensureCarnetToken(db, env, a, UUID, SPIN), CARNET);
   });
   assert.equal(writes.length, 1);
-  assert.ok(writes[0].carnetTokens.includes(CARNET));
+  assert.equal(writes[0].token, CARNET);
 });
 
 test("status 401 forces one new carnet and repeats both reads", async () => {

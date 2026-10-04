@@ -3,14 +3,6 @@ import { AuthFailure } from "./errors";
 import { RequestLimiter } from "./limits";
 import { verifyNip98 } from "./nip98";
 
-const READ_PATHS = new Set([
-  "/rpc/auth/me",
-  "/rpc/vehicle/climateInfo",
-  "/rpc/vehicle/activity",
-  "/rpc/vehicle/messages",
-  "/rpc/vehicle/refreshMessages",
-  "/rpc/vehicle/parkedMapUrl",
-]);
 const PASSIVE_READ_PATHS = new Set([
   "/api/v1/owner",
   "/api/v1/vehicles",
@@ -34,7 +26,7 @@ export function classifyEndpoint(method: string, path: string): EndpointClass {
     return "read";
   if (method === "PATCH" && /^\/api\/v1\/messages\/[^/]+$/.test(path))
     return "read";
-  return READ_PATHS.has(path) ? "read" : "control";
+  return "control";
 }
 
 export interface AuthRequest {

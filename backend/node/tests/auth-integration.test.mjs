@@ -15,10 +15,11 @@ import { seal } from "../../src/crypto.ts";
 import { SqliteStorage } from "../../storage/database.ts";
 import { SecretRepository } from "../../storage/secrets.ts";
 import { loadNodeConfig } from "../config.ts";
+import { NodePassiveApi } from "../passive.ts";
 import { createNodeRuntime } from "../runtime.ts";
 import { NodeSqliteStore } from "../sqlite-store.ts";
 
-const target = "/rpc/vehicle/parkedMapUrl";
+const target = "/api/v1/owner";
 const rpcBody = Buffer.from(
   JSON.stringify({
     json: { lat: 41, lng: -87, widthPt: 300, heightPt: 200, dark: false },
@@ -88,6 +89,7 @@ async function setup(t, pair = true) {
     key.toString("base64"),
   );
   const runtime = createNodeRuntime(loadNodeConfig(env, "test"), {
+    passive: new NodePassiveApi(storage, db),
     auth: new DeviceAuthService(devices, origin, () => nowMs),
     db,
     poll: () => Promise.resolve(),
@@ -101,19 +103,16 @@ async function setup(t, pair = true) {
   return { port, devices, paired, db };
 }
 
-test("Node starts without InstantDB configuration and resolves the owner account from SQLite", async (t) => {
-  assert.equal("INSTANT_APP_ID" in env, false);
-  assert.equal("INSTANT_ADMIN_TOKEN" in env, false);
+test("Node resolves the owner account from SQLite through the signed API", async (t) => {
   const server = await setup(t);
-  const target = "/rpc/auth/me";
   const call = async () => {
-    const authorization = signedRequest({ method: "POST", target }).request
+    const authorization = signedRequest({ method: "GET", target }).request
       .authorization;
-    return send(server.port, target, { method: "POST", authorization });
+    return send(server.port, target, { authorization });
   };
   const before = await call();
   assert.equal(before.status, 200, before.body);
-  assert.deepEqual(JSON.parse(before.body), { json: { loggedIn: false } });
+  assert.equal(JSON.parse(before.body).accountLinked, false);
   const sealed = await seal(
     env.BUZZKEY_MASTER_KEY_B64,
     JSON.stringify({
@@ -144,21 +143,17 @@ test("Node starts without InstantDB configuration and resolves the owner account
   );
   const after = await call();
   assert.equal(after.status, 200, after.body);
-  assert.deepEqual(JSON.parse(after.body), { json: { loggedIn: true } });
+  assert.equal(JSON.parse(after.body).accountLinked, true);
+  assert.equal(JSON.parse(after.body).vehicleAvailable, true);
 });
 
-test("health is public while anonymous and guest-token-only RPC are rejected", async (t) => {
+test("health is public while anonymous and legacy guest-token-only API are rejected", async (t) => {
   const server = await setup(t);
   assert.equal((await send(server.port, "/health")).status, 200);
-  assert.equal(
-    (await send(server.port, target, { method: "POST", body: rpcBody })).status,
-    401,
-  );
+  assert.equal((await send(server.port, target)).status, 401);
   assert.equal(
     (
       await send(server.port, target, {
-        method: "POST",
-        body: rpcBody,
         guestToken: "synthetic-guest-token",
       })
     ).status,
@@ -166,35 +161,26 @@ test("health is public while anonymous and guest-token-only RPC are rejected", a
   );
 });
 
-test("signed authorized-device RPC succeeds, then the same event is rejected", async (t) => {
+test("signed authorized-device Node API succeeds, then the same event is rejected", async (t) => {
   const server = await setup(t);
-  const authorization = signedRequest({
-    method: "POST",
-    target,
-    body: rpcBody,
-  }).request.authorization;
-  const input = {
-    method: "POST",
-    body: rpcBody,
-    authorization,
-  };
+  const authorization = signedRequest({ method: "GET", target }).request
+    .authorization;
+  const input = { authorization };
   const accepted = await send(server.port, target, input);
   assert.equal(accepted.status, 200, accepted.body);
-  assert.deepEqual(JSON.parse(accepted.body), { json: { url: null } });
+  assert.equal(JSON.parse(accepted.body).accountLinked, false);
   assert.equal((await send(server.port, target, input)).status, 401);
 });
 
-test("revoked device cannot reach RPC", async (t) => {
+test("revoked device cannot reach Node API", async (t) => {
   const server = await setup(t);
   assert.ok(server.paired);
   assert.equal(server.devices.revoke(server.paired.id, nowMs), true);
-  const authorization = signedRequest({ method: "POST", target, body: rpcBody })
-    .request.authorization;
+  const authorization = signedRequest({ method: "GET", target }).request
+    .authorization;
   assert.equal(
     (
       await send(server.port, target, {
-        method: "POST",
-        body: rpcBody,
         authorization,
       })
     ).status,

@@ -1,5 +1,4 @@
 /** Shared compare-first account-session orchestration. VW protocol operations are unchanged. */
-import { ORPCError } from "@orpc/server";
 import type { VehicleDTO } from "@vwapp/contract";
 import {
   getAccountByUserKey,
@@ -15,6 +14,13 @@ import {
   vwRefresh,
   type VwTokens,
 } from "./vw/client";
+
+export class AccountAuthenticationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "AccountAuthenticationError";
+  }
+}
 
 /**
  * One VW account = one vwAccounts row, shared by every client (app installs,
@@ -142,11 +148,9 @@ export async function establishSession(
         `[auth] VW password login FAILED: ${safeErrors ? "authentication failed" : err instanceof Error ? err.message : "unknown"}`,
       );
       if (err instanceof VwAuthError)
-        throw new ORPCError("UNAUTHORIZED", {
-          message: safeErrors
-            ? "Volkswagen authentication failed"
-            : err.message,
-        });
+        throw new AccountAuthenticationError(
+          safeErrors ? "Volkswagen authentication failed" : err.message,
+        );
       throw err;
     }
     session = { tokens, vehicles: await vwGetVehicles(tokens.accessToken) };

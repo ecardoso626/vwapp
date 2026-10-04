@@ -13,7 +13,7 @@ let nonceCounter = 0;
 export function signedRequest({
   key = keyA,
   method = "GET",
-  target = "/rpc/auth/me",
+  target = "/api/v1/owner",
   body = Buffer.alloc(0),
   createdAt = Math.floor(nowMs / 1_000),
   tags = [],

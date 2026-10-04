@@ -1,5 +1,5 @@
 // Bump the app version: `pnpm run version patch|minor|major` (default patch).
-// app.json `expo.version` is what ships (EAS manages buildNumber remotely);
+// app.json `expo.version` is what ships;
 // package.json `version` is kept in sync for consistency.
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";

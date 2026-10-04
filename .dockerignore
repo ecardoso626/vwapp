@@ -1,0 +1,7 @@
+# This image consumes only the pinned-pnpm production bundle.
+*
+!dist/
+!dist/node/
+!dist/node/main.mjs
+!dist/node/auth-admin.mjs
+!dist/node/container-smoke.mjs

@@ -7,12 +7,6 @@
       "skillPath": "plugins/expo/skills/building-native-ui/SKILL.md",
       "computedHash": "342df93f481a0dba919f372d6c7b40d2b4bf5b51dd24363aea2e5d0bae27a6fa"
     },
-    "expo-deployment": {
-      "source": "expo/skills",
-      "sourceType": "github",
-      "skillPath": "plugins/expo/skills/expo-deployment/SKILL.md",
-      "computedHash": "9ea9f16374765c1b16764a51bd43a64098921b33f48e94d9c5c1cce24b335c10"
-    },
     "expo-dev-client": {
       "source": "expo/skills",
       "sourceType": "github",
@@ -24,12 +18,6 @@
       "sourceType": "github",
       "skillPath": "plugins/expo/skills/expo-tailwind-setup/SKILL.md",
       "computedHash": "d39e806942fe880347f161056729b588a3cb0f1796270eebf52633fe11cfdce1"
-    },
-    "instantdb": {
-      "source": "instantdb/skills",
-      "sourceType": "github",
-      "skillPath": "skills/instantdb/SKILL.md",
-      "computedHash": "dde751fe7baf02ad41f01fd9c161043a1b140093fada936a6a1adbe34a777efd"
     },
     "tamagui-best-practices": {
       "source": "0xbigboss/claude-code",

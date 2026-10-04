@@ -1,8 +1,12 @@
-# Current architecture — Phase 0 evidence
+# Current architecture — Node/SQLite backend
+
+**Current architecture (2026-10-04):** Native BuzzKey mobile app → NIP-98 signed Node API (`backend/node/main.ts`) → SQLite (`backend/storage/`, `backend/node/sqlite-store.ts`) → VW North America protocol (`backend/src/vw/client.ts`). Node is the only backend and scheduler; Worker/InstantDB runtime and mobile fallbacks have been removed. SQLite data lives outside the container in `/data`, while the AES master key is separately mounted. The container is built and tested for Linux ARM64; no deployment or live VW validation occurred. See [self-hosted backend](docs/SELF_HOSTED_BACKEND.md) for current routes, config, Compose and operations.
+
+## Historical Phase 0 source snapshot
 
 Inspected 2026-10-02 America/Chicago. Repository: `https://github.com/ecardoso626/vwapp`, branch `umbrel-selfhosted`, commit `15500a78ff6a33310e443c91a9b6c3e62554b2cc` (`v1.0.24`). The local fork at `/Users/cardosofam/vwapp` was clean. Its source was byte-for-byte equal to the separate upstream reference checkout used for dependency installation and validation. No VW requests were made; upstream comments saying “verified live” describe the author's past observations, not verification performed in this inspection.
 
-This document is a historical Phase 0 source snapshot. Phase 3 removed the voice/AI paths described below; Phase 4 added a separate Node runtime beside the Worker. See `MIGRATION_PLAN.md` §17 and `docs/NODE_RUNTIME.md` for the later state.
+The remainder of this document is a historical Phase 0 source snapshot, not current runtime guidance. Phase 3 removed the voice/AI paths described below; Phase 4 added a separate Node runtime beside the Worker. See `MIGRATION_PLAN.md` §17 and `docs/NODE_RUNTIME.md` for the later state.
 
 **Current control-cutover overlay:** Default mobile pairing, account, passive reads and all vehicle controls now use NIP-98 Node APIs and SQLite. Charging, climate/settings, server-owned persisted Camp Mode and explicit wake share the existing durable command ledger with lock/unlock. No default Worker RPC or Instant subscription is reachable; the legacy provider is unmounted. Coordinates replace signed map snapshots. Worker/Instant infrastructure remains buildable for old clients/rollback; stores do not synchronize. Node scheduling remains off by default, with disabled Camp automation visible in the app. See [control cutover](docs/CONTROL_CUTOVER.md). No deployment, live migration or native iOS build occurred.
 

@@ -6,7 +6,7 @@ import { loadStorageConfig } from "../storage/config";
 export interface NodeConfig {
   host: string;
   port: number;
-  /** Off by default while the Worker may still be polling the same account. */
+  /** Off by default for local use; production Compose explicitly enables it. */
   schedulerEnabled: boolean;
   publicOrigin: string;
   sqlitePath: string;
@@ -18,11 +18,8 @@ export interface NodeConfig {
 const schema = z.object({
   NODE_HOST: z.string().min(1).default("127.0.0.1"),
   NODE_PORT: z.coerce.number().int().min(0).max(65535).default(8788),
-  NODE_SCHEDULER_ENABLED: z.enum(["true", "false"]).default("false"),
+  BUZZKEY_SCHEDULER_ENABLED: z.enum(["true", "false"]).default("false"),
   NODE_PUBLIC_ORIGIN: z.string().min(1),
-  APPLE_MAPS_TEAM_ID: z.string().min(1).optional(),
-  APPLE_MAPS_KEY_ID: z.string().min(1).optional(),
-  APPLE_MAPS_PRIVATE_KEY: z.string().min(1).optional(),
 });
 
 /** The test mode permits an ephemeral port; production requires a fixed port. */
@@ -48,7 +45,7 @@ export function loadNodeConfig(
   return {
     host: values.NODE_HOST,
     port: values.NODE_PORT,
-    schedulerEnabled: values.NODE_SCHEDULER_ENABLED === "true",
+    schedulerEnabled: values.BUZZKEY_SCHEDULER_ENABLED === "true",
     publicOrigin: validatePublicOrigin(
       values.NODE_PUBLIC_ORIGIN,
       mode === "test",
@@ -58,15 +55,6 @@ export function loadNodeConfig(
     masterKey: storage.masterKey,
     env: {
       CREDS_ENC_KEY: storage.masterKey.toString("base64"),
-      ...(values.APPLE_MAPS_TEAM_ID === undefined
-        ? {}
-        : { APPLE_MAPS_TEAM_ID: values.APPLE_MAPS_TEAM_ID }),
-      ...(values.APPLE_MAPS_KEY_ID === undefined
-        ? {}
-        : { APPLE_MAPS_KEY_ID: values.APPLE_MAPS_KEY_ID }),
-      ...(values.APPLE_MAPS_PRIVATE_KEY === undefined
-        ? {}
-        : { APPLE_MAPS_PRIVATE_KEY: values.APPLE_MAPS_PRIVATE_KEY }),
     },
   };
 }

@@ -1,7 +1,10 @@
-# TODO / future work
+# Historical TODO / design notes
 
-Decisions and designs agreed in discussion but not yet built. Keep this current:
-remove items when done, add design notes when plans firm up.
+This backlog predates the Node/SQLite cutover. Many Worker, InstantDB, Wrangler
+and EAS items below are complete or superseded and are retained as historical
+design context only. Use `docs/SELF_HOSTED_BACKEND.md` and the current source
+for operational decisions; reconcile an item against that architecture before
+starting new work.
 
 ## 1. Auth/session hardening
 

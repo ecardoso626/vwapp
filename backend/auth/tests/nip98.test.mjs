@@ -17,12 +17,12 @@ function verify(request, time = nowMs) {
 }
 
 test("valid signed GET and POST bind exact URL, method and raw body", () => {
-  const get = signedRequest({ target: "/rpc/auth/me?x=%2F&x=2" });
+  const get = signedRequest({ target: "/api/v1/owner?x=%2F&x=2" });
   assert.equal(verify(get.request).id, get.event.id);
   const body = Buffer.from('{"message":"café"}');
   const post = signedRequest({
     method: "POST",
-    target: "/rpc/vehicle/climateStart?unit=F",
+    target: "/api/v1/vehicles/synthetic/commands?unit=F",
     body,
   });
   assert.equal(verify(post.request).pubkey, post.event.pubkey);
@@ -41,7 +41,7 @@ test("missing or malformed authorization and event fields fail", () => {
     { ...event, kind: 1 },
     { ...event, content: "not empty" },
     { ...event, tags: event.tags.filter((tag) => tag[0] !== "u") },
-    { ...event, tags: [...event.tags, ["u", origin + "/rpc/auth/me"]] },
+    { ...event, tags: [...event.tags, ["u", origin + "/api/v1/owner"]] },
     { ...event, tags: [...event.tags, ["method", "GET", "extra"]] },
   ]) {
     assert.throws(() =>
@@ -70,12 +70,12 @@ test("changed URL, query encoding, method or body fails", () => {
   const body = Buffer.from("synthetic-body");
   const { request } = signedRequest({
     method: "POST",
-    target: "/rpc/vehicle/command?x=%2F",
+    target: "/api/v1/vehicles/synthetic/commands?x=%2F",
     body,
   });
   for (const changed of [
-    { rawTarget: "/rpc/vehicle/command?x=/" },
-    { rawTarget: "/rpc/vehicle/command?x=%2f" },
+    { rawTarget: "/api/v1/vehicles/synthetic/commands?x=/" },
+    { rawTarget: "/api/v1/vehicles/synthetic/commands?x=%2f" },
     { method: "PUT" },
     { body: Buffer.from("synthetic-bodY") },
   ]) {
@@ -136,15 +136,15 @@ test("origin and raw target reject proxy or normalization ambiguity", () => {
   assert.throws(() => validatePublicOrigin("https://buzzkey.test/path"));
   assert.throws(() => validatePublicOrigin("https://buzzkey.test:443"));
   assert.equal(
-    signedRequestUrl(origin, "/rpc/auth/me?a=%2F&b=2"),
-    `${origin}/rpc/auth/me?a=%2F&b=2`,
+    signedRequestUrl(origin, "/api/v1/owner?a=%2F&b=2"),
+    `${origin}/api/v1/owner?a=%2F&b=2`,
   );
   for (const target of [
-    "https://evil.test/rpc/auth/me",
-    "//evil.test/rpc/auth/me",
+    "https://evil.test/api/v1/owner",
+    "//evil.test/api/v1/owner",
     "/rpc/../auth/me",
-    "/rpc/auth/me#fragment",
-    "/rpc/auth/me?bad=%ZZ",
+    "/api/v1/owner#fragment",
+    "/api/v1/owner?bad=%ZZ",
     "/rpc\\auth/me",
   ]) {
     assert.throws(() => signedRequestUrl(origin, target));

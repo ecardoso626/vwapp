@@ -10,7 +10,7 @@ import { NodePassiveApi } from "./passive";
 import type { NodeServices } from "./runtime";
 import { NodeSqliteStore } from "./sqlite-store";
 
-/** Node alone owns SQLite application state; the Worker retains InstantDB. */
+/** Compose the sole backend against SQLite application state. */
 export function createNodeServices(
   storage: SqliteStorage,
   config: NodeConfig,

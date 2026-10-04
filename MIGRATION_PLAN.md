@@ -1,4 +1,6 @@
-# VWApp migration plan — Phase 0
+# VWApp migration plan — historical Phase 0 plan
+
+**Current milestone (2026-10-04):** The supported backend is now Node/SQLite only. The Worker/InstantDB runtime, legacy mobile fallback, Wrangler/EAS deployment scripts, and Worker cron were removed. Node owns NIP-98 API authentication and the only scheduler; production Compose explicitly enables it. Linux ARM64 synthetic container validation passed, with no deployment or VW calls. See [self-hosted backend](docs/SELF_HOSTED_BACKEND.md) for current operational design. The phase descriptions and original recommendations below are historical and do not override the current architecture.
 
 Inspection date: 2026-10-02, America/Chicago. Repository: [ecardoso626/vwapp](https://github.com/ecardoso626/vwapp), upstream [sstur/vwapp](https://github.com/sstur/vwapp). Local repository `/Users/cardosofam/vwapp`, branch `umbrel-selfhosted`, baseline `15500a78ff6a33310e443c91a9b6c3e62554b2cc` (`v1.0.24`). The working tree was clean before these documentation files were added.
 

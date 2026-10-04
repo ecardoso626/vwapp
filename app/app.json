@@ -3,9 +3,6 @@
     "name": "BuzzKey",
     "slug": "vwapp",
     "version": "1.0.24",
-    "runtimeVersion": {
-      "policy": "sdkVersion"
-    },
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "vwapp",

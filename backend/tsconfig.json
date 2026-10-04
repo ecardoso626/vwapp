@@ -3,13 +3,8 @@
   "compilerOptions": {
     "module": "ESNext",
     "moduleResolution": "Bundler",
-    "lib": ["ES2022", "WebWorker"],
-    "types": []
+    "lib": ["ES2022", "DOM"],
+    "types": ["node"]
   },
-  "include": [
-    "src",
-    "instant.schema.ts",
-    "instant.perms.ts",
-    "worker-configuration.d.ts"
-  ]
+  "include": ["src"]
 }

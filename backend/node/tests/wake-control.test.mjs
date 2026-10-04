@@ -180,7 +180,7 @@ test("all old Node control aliases are retired after authentication with no VW r
       assert.equal(
         (await f.raw(url, { method: "POST", body, headers: { authorization } }))
           .status,
-        410,
+        404,
       );
     }
   });

@@ -1,0 +1,39 @@
+services:
+  buzzkey-backend:
+    image: buzzkey-backend:local
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    restart: unless-stopped
+    stop_grace_period: 90s
+    ports:
+      - "127.0.0.1:${BUZZKEY_HOST_PORT:-8788}:8788"
+    environment:
+      NODE_HOST: 0.0.0.0
+      NODE_PORT: "8788"
+      NODE_PUBLIC_ORIGIN: ${NODE_PUBLIC_ORIGIN:?Set trusted external HTTPS origin}
+      BUZZKEY_SQLITE_PATH: /data/buzzkey.sqlite
+      BUZZKEY_MASTER_KEY_ID: ${BUZZKEY_MASTER_KEY_ID:?Set master key identifier}
+      BUZZKEY_MASTER_KEY_FILE: /run/secrets/buzzkey_master_key
+      BUZZKEY_SCHEDULER_ENABLED: "true"
+    volumes:
+      - type: bind
+        source: ${BUZZKEY_DATA_DIR:?Set persistent host data directory}
+        target: /data
+      - type: bind
+        source: ${BUZZKEY_MASTER_KEY_FILE_HOST:?Set existing external key file}
+        target: /run/secrets/buzzkey_master_key
+        read_only: true
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:8788/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3

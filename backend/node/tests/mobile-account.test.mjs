@@ -13,7 +13,6 @@ import {
   BuzzKeyApiError,
   createBuzzKeyClient,
 } from "../../../app/src/buzzkey-client.ts";
-import { matchingLegacyVehicle } from "../../../app/src/legacy-control-state.ts";
 import { signNip98 } from "../../../app/src/nip98.ts";
 import { DeviceRepository } from "../../auth/devices.ts";
 import { seal } from "../../src/crypto.ts";
@@ -726,7 +725,7 @@ test("signed credential URL/method/body tampering fails and query credentials ar
   );
 });
 
-test("legacy Node account mutations are retired while health is public", async (t) => {
+test("retired RPC account paths remain unavailable while health is public", async (t) => {
   const f = await fixture(t);
   assert.equal((await f.raw(origin + "/health")).status, 200);
   for (const path of [
@@ -752,31 +751,10 @@ test("legacy Node account mutations are retired while health is public", async (
             body,
           })
         ).status,
-        410,
+        404,
       ),
     );
   }
-});
-
-test("Worker control gate fails closed for unrelated VIN/reference, disconnected or failed Node state", () => {
-  const connection = { linked: true, state: "connected", session: "usable" };
-  const node = { uuid: UUID, vin: VIN };
-  const legacy = { id: "worker-row", ...node };
-  assert.equal(matchingLegacyVehicle(connection, node, true, [legacy]), legacy);
-  for (const [state, vehicle, loggedIn, rows] of [
-    [undefined, node, true, [legacy]],
-    [{ ...connection, linked: false }, node, true, [legacy]],
-    [{ ...connection, state: "pin_required" }, node, true, [legacy]],
-    [{ ...connection, session: "unverified" }, node, true, [legacy]],
-    [connection, node, false, [legacy]],
-    [connection, undefined, true, [legacy]],
-    [connection, node, true, [{ ...legacy, vin: "OTHER" }]],
-    [connection, node, true, [{ ...legacy, uuid: "OTHER" }]],
-  ])
-    assert.equal(
-      matchingLegacyVehicle(state, vehicle, loggedIn, rows),
-      undefined,
-    );
 });
 
 test("failed explicit reconnect reports reauthentication required while preserving the account link and secrets", async (t) => {

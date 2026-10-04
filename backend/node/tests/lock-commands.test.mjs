@@ -724,7 +724,7 @@ test("raw command errors, receipt and structured logs never expose synthetic sec
   assert.equal(result.failureCode, "submission_uncertain");
 });
 
-test("retired Node optimistic command alias cannot bypass durable semantics; Worker route source stays intact", async (t) => {
+test("retired optimistic command alias cannot bypass durable semantics", async (t) => {
   const { f } = await ready(t);
   const path = "/rpc/vehicle/command";
   const body = "{}";
@@ -743,7 +743,7 @@ test("retired Node optimistic command alias cannot bypass durable semantics; Wor
           headers: { authorization: signed.authorization },
         })
       ).status,
-      410,
+      404,
     ),
   );
 });

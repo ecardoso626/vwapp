@@ -3,15 +3,8 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "pnpm run \"/^dev:/\"",
-    "dev:worker": "wrangler dev --ip 0.0.0.0",
-    "dev:cron": "while true; do sleep 60; curl -s -o /dev/null --max-time 50 \"http://localhost:8787/cdn-cgi/handler/scheduled\" || true; done",
-    "deploy": "set -a; [ -f .env ] && . ./.env; set +a; wrangler deploy",
-    "smoke": "node --env-file=../.env --env-file=.dev.vars scripts/smoke.ts",
-    "auth-check": "node --env-file=.dev.vars scripts/auth-check.ts",
-    "wipe": "node --env-file=.dev.vars scripts/wipe.ts",
-    "cf-typegen": "wrangler types",
-    "typecheck": "tsc --noEmit && tsc --noEmit -p scripts/tsconfig.json && tsc --noEmit -p node/tsconfig.json",
+    "dev": "pnpm run node:start",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p node/tsconfig.json",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
@@ -20,19 +13,15 @@
     "node:test": "node --import ./tests/register.mjs --test node/tests/*.test.mjs",
     "storage:test": "node --import ./tests/register.mjs --test storage/tests/*.test.mjs",
     "auth:test": "node --import ./tests/register.mjs --test auth/tests/*.test.mjs",
-    "auth:admin:build": "esbuild auth/admin.ts --bundle --platform=node --format=esm --target=node22 --outfile=../dist/node/auth-admin.mjs"
+    "auth:admin:build": "esbuild auth/admin.ts --bundle --platform=node --format=esm --target=node22 --outfile=../dist/node/auth-admin.mjs",
+    "container:smoke:build": "esbuild node/tests/container-smoke.ts --bundle --platform=node --format=esm --target=node22 --outfile=../dist/node/container-smoke.mjs"
   },
   "dependencies": {
-    "@instantdb/admin": "^1.0.52",
-    "@orpc/server": "latest",
     "@vwapp/contract": "workspace:*",
-    "@vwapp/db": "workspace:*",
     "nostr-tools": "2.25.2",
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@orpc/client": "^1.14.8",
-    "wrangler": "latest",
     "@types/node": "26.1.1",
     "esbuild": "0.28.1"
   },

@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { ORPCError } from "@orpc/server";
 import {
   accountConnectSchema,
   accountCredentialsSchema,
@@ -9,7 +8,10 @@ import {
   type AccountConnection,
 } from "@vwapp/contract/account";
 import type { AuthorizedDevice } from "../auth/devices";
-import { establishSession } from "../src/account-session";
+import {
+  AccountAuthenticationError,
+  establishSession,
+} from "../src/account-session";
 import { seal } from "../src/crypto";
 import type { AppEnv } from "../src/env";
 import { readStatus } from "../src/status";
@@ -430,7 +432,7 @@ export class NodeAccountApi {
     } catch (error) {
       const rejected =
         error instanceof VwAuthError ||
-        (error instanceof ORPCError && error.code === "UNAUTHORIZED");
+        error instanceof AccountAuthenticationError;
       this.markFailure(
         rejected ? "reauthentication_required" : "session_unusable",
         path.endsWith("/reconnect") ||

@@ -1,7 +1,7 @@
 /**
  * Full-screen states shown before the navigator mounts: the spinner that sits
  * under the native splash while the session resolves, and the error state
- * when it can't be resolved (server or Instant unreachable).
+ * when it can't be resolved (backend unreachable).
  */
 import { H2, Paragraph, Spinner, YStack } from "tamagui";
 import { IosButton } from "./ios-list";

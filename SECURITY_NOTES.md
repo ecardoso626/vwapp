@@ -1,4 +1,6 @@
-# Security notes — proposed architecture, not implemented
+# Security notes — current boundary and historical review
+
+**Current boundary (2026-10-04):** The supported API is Node with exact external-origin NIP-98, authorized devices, persistent replay/rate limits and SQLite-backed encrypted VW secrets. `/health` is public; `/api/v1/*` is protected. Worker/Instant guest auth is removed. The external HTTPS origin is configured, never derived from forwarded headers. Compose binds the backend to host loopback and mounts the master key separately from `/data`. Node is the only scheduler. No deployment, real pairing, credentials or live VW calls occurred. See [self-hosted backend](docs/SELF_HOSTED_BACKEND.md). The review below is historical Phase 0 evidence and its "current" statements refer to the old architecture.
 
 This is historical Phase 0 evidence. Phase 3 removed the voice/AI source, binding and microphone permission mentioned below; old logs or cached recordings, if any, were outside this source-only change.
 

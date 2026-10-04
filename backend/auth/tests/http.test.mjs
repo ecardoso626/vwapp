@@ -48,7 +48,7 @@ test("health is public; other Node ingress requires NIP authorization", async (t
     authenticateHttpRequest(
       incoming({
         method: "GET",
-        rawTarget: "/rpc/auth/me",
+        rawTarget: "/api/v1/owner",
         body: Buffer.alloc(0),
       }),
       auth,
@@ -57,7 +57,7 @@ test("health is public; other Node ingress requires NIP authorization", async (t
   );
 });
 
-test("signed pairing and protected RPC pass; replay and duplicate headers fail", async (t) => {
+test("signed pairing and protected Node API pass; replay and duplicate headers fail", async (t) => {
   const { auth, devices } = fixture(t);
   const token = devices.issuePairing(nowMs);
   const paired = await authenticateHttpRequest(
@@ -68,7 +68,7 @@ test("signed pairing and protected RPC pass; replay and duplicate headers fail",
   assert.equal(paired.kind, "paired");
   const request = signedRequest({
     method: "POST",
-    target: "/rpc/vehicle/parkedMapUrl",
+    target: "/api/v1/messages",
     body: Buffer.from('{"json":{"lat":41}}'),
   }).request;
   const accepted = await authenticateHttpRequest(
@@ -77,7 +77,7 @@ test("signed pairing and protected RPC pass; replay and duplicate headers fail",
     origin,
   );
   assert.equal(accepted.kind, "authorized");
-  assert.equal(accepted.signedUrl, `${origin}/rpc/vehicle/parkedMapUrl`);
+  assert.equal(accepted.signedUrl, `${origin}/api/v1/messages`);
   assert.deepEqual(accepted.body, request.body);
   await assert.rejects(
     authenticateHttpRequest(incoming(request), auth, origin),
@@ -102,7 +102,7 @@ test("changed request bytes and oversized bodies never pass to application logic
   );
   const signed = signedRequest({
     method: "POST",
-    target: "/rpc/vehicle/command",
+    target: "/api/v1/vehicles/synthetic/commands",
     body: Buffer.from("synthetic-body"),
   }).request;
   let called = false;

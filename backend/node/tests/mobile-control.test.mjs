@@ -78,7 +78,7 @@ test("all uncertain command presentations avoid success labels", () => {
     assert.doesNotMatch(controlLabel({ status }, false), /^Confirmed/);
 });
 
-test("default mobile entry/import graph has no Worker/Instant dependency for any control, account, passive read or map", async () => {
+test("mobile entry/import graph uses only the Node client for control, account, passive read and map", async () => {
   const { readFileSync, existsSync, readdirSync } = await import("node:fs");
   const { resolve, dirname } = await import("node:path");
   const root = resolve(import.meta.dirname, "../../../app/src");
