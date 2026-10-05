@@ -45,3 +45,22 @@ The provisioning launcher's explicit `--diagnostic-attempt` allows only the prev
 Build/test/commit/push first, then transfer the ARM64 image and its checksum/config-digest. `scripts/umbrel-auth-diagnostic-deploy.sh <reviewed-revision>` validates disabled scheduler, trusted origin, private binding and marker configuration; verifies/loads only the local reviewed image and recreates only BuzzKey. It saves restricted reports and does not change Tailscale routes. Verify health, paired signed access, SQLite, protected external key, private Serve 8443 and unchanged Funnel 443 before interactive entry.
 
 Permit at most one additional live login. On failure: stop immediately, collect sanitized stage/status, report confidence and one next step. On success: garage/passive cloud reads only, encrypted persistence and restart/log review. No wake, physical mutation or scheduler enablement. Do not repeat provisioning on an error, timeout or ambiguous output.
+
+## Controlled live result — 2026-10-04
+
+Diagnostic source `89f262b` was committed/pushed and deployed after all 268 offline tests passed (66 VW/domain, 152 Node, 25 storage, 25 device-auth; 29 new tests). Repository typecheck/lint/formatting, diff checks, production bundles and isolated ARM64 startup checks passed. The lockfile was unchanged. Post-deployment checks confirmed healthy private HTTPS, SQLite/seven migrations and paired-device continuity, signed API/replay/wrong-origin rejection, protected unchanged external key, disabled scheduler and unchanged Tailscale Serve/Funnel routes.
+
+The operator then ran the hidden interactive provisioning client **once**. The application returned HTTP 422. Sanitized production diagnostics localize the underlying VW failure:
+
+- Authorization redirects completed and returned HTML HTTP 200.
+- Identifier form `_csrf` and `hmac` were found. Identifier POST returned 303 followed by the password page HTTP 200.
+- Password form CSRF, relay state and HMAC were found. Password submission followed redirects to the expected callback; authorization-code extraction did not fail.
+- POST `b-h-s.spr.us00.p.con-veh.net/oidc/v1/token` returned **HTTP 401, JSON category**. Internal error: **`auth_token_exchange_failed`**.
+- The existing placeholder integrity field was sent at that stage. No recognized explicit attestation-rejection code was detected. This does not establish whether genuine attestation is required; an unrecognized error format could conceal a more specific cause.
+- No explicit credential rejection was observed. The form/redirect path progressed, but that alone does not establish token grant validity or prove every OAuth assumption correct.
+
+**Diagnosis remains UNRESOLVED**, with the failure narrowed to token exchange. Most plausible investigation targets are changed token-endpoint requirements (including, but not proving, genuine attestation enforcement) and authorization-code/PKCE/client/redirect binding requirements. Current evidence does not distinguish those. Expected form fields were present; missing-form parsing is not the observed failure. Current upstream has no differing implementation to port.
+
+Exactly one full login start and one failure were logged, with zero successes and no garage/refresh/S-PIN activity. The persistent empty 0600 attempt marker exists; no further full login is permitted under this milestone. SQLite integrity remains good with zero accounts, account secrets, VW sessions, vehicles, observations or command rows. No vehicle mutation was issued. All post-attempt log lines matched reviewed fixed messages or the strict diagnostic schema; no raw bodies/URLs, credentials, cookies, authorization codes, tokens or private authorization data appeared. The external master key was separately checked absent from the log. Log review: **PASS**.
+
+Stop here. Recommended next task: an **offline/public-source comparison of the NA token-exchange contract**, focusing on attestation and OAuth binding, ending in one evidence-backed proposed change and synthetic regression tests. Do not delete the attempt marker, retry provisioning or contact VW without fresh explicit authorization. Scheduler remains **DISABLED**.
