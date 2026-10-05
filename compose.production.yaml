@@ -16,6 +16,7 @@ services:
       BUZZKEY_MASTER_KEY_ID: ${BUZZKEY_MASTER_KEY_ID:?Set master key identifier}
       BUZZKEY_MASTER_KEY_FILE: /run/secrets/buzzkey_master_key
       BUZZKEY_SCHEDULER_ENABLED: "false"
+      BUZZKEY_AUTH_ATTEMPT_MARKER: /data/auth-diagnostic-20261004.used
     volumes:
       - type: bind
         source: ${BUZZKEY_DATA_DIR:?Set persistent host data directory}

@@ -13,6 +13,7 @@ def main():
     parser = argparse.ArgumentParser(description="One-shot BuzzKey VW provisioning; no vehicle controls")
     parser.add_argument("--origin", required=True)
     parser.add_argument("--device-key", required=True)
+    parser.add_argument("--diagnostic-attempt", action="store_true")
     args = parser.parse_args()
     if not sys.stdin.isatty() or not sys.stderr.isatty():
         print("Run directly in your local terminal; hidden interactive input is required.", file=sys.stderr)
@@ -28,7 +29,7 @@ def main():
         payload = json.dumps(credentials)
         credentials.clear()
         result = subprocess.run(
-            ["node", str(Path(__file__).with_name("vw-provision-client.mjs")), args.origin, args.device_key],
+            ["node", str(Path(__file__).with_name("vw-provision-client.mjs")), args.origin, args.device_key] + (["--diagnostic-attempt"] if args.diagnostic_attempt else []),
             input=payload, text=True, check=False,
         )
         payload = ""

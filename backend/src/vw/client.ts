@@ -8,6 +8,7 @@
  *   -> identifier-first HTML scrape -> kombi:///login?code=… -> token exchange.
  */
 import type { StatusDTO, VehicleDTO } from "@vwapp/contract";
+import { AuthTrace, consumePasswordLogin } from "./auth-diagnostics";
 
 const API = "https://b-h-s.spr.us00.p.con-veh.net";
 const IDP = "https://identity.na.vwgroup.io";
@@ -293,6 +294,7 @@ async function follow(
     headers?: Record<string, string>;
   } = {},
   maxRedirects = 30,
+  trace?: AuthTrace,
 ): Promise<FollowResult> {
   let current = url;
   let method = init.method ?? "GET";
@@ -309,12 +311,15 @@ async function follow(
       ...extraHeaders,
       ...(cookie ? { cookie } : {}),
     };
-    const res = await fetch(current, {
+    const request = {
       method,
       headers,
       body: body ?? null,
-      redirect: "manual",
-    });
+      redirect: "manual" as const,
+    };
+    const res = trace
+      ? await trace.fetch(current, request, hop)
+      : await fetch(current, request);
     jar.ingest(res, current);
 
     if (REDIRECT_CODES.has(res.status)) {
@@ -323,8 +328,10 @@ async function follow(
         throw new VwAuthError(
           `redirect ${String(res.status)} without Location`,
         );
-      if (loc.startsWith("kombi://"))
+      if (loc.startsWith("kombi://")) {
+        trace?.callback();
         return { res, finalUrl: current, body: "", callbackUrl: loc };
+      }
       current = new URL(loc, current).toString();
       if (res.status === 302 || res.status === 303) {
         method = "GET";
@@ -395,105 +402,136 @@ export async function vwLogin(
   username: string,
   password: string,
 ): Promise<VwTokens> {
-  const jar = new CookieJar();
-  const codeVerifier = randomHex(64).toUpperCase();
-  const codeChallenge = await sha256Base64Url(codeVerifier);
+  const trace = new AuthTrace("authorize");
+  try {
+    consumePasswordLogin();
+    const jar = new CookieJar();
+    const codeVerifier = randomHex(64).toUpperCase();
+    const codeChallenge = await sha256Base64Url(codeVerifier);
 
-  const authUrl =
-    `${API}/oidc/v1/authorize?` +
-    new URLSearchParams({
-      redirect_uri: REDIRECT_URI,
-      scope: SCOPE,
-      prompt: "login",
-      code_challenge: codeChallenge,
-      code_challenge_method: "S256",
-      state: randomHex(16),
-      response_type: "code",
-      client_id: DEVICE_CLIENT,
-    }).toString();
+    const authUrl =
+      `${API}/oidc/v1/authorize?` +
+      new URLSearchParams({
+        redirect_uri: REDIRECT_URI,
+        scope: SCOPE,
+        prompt: "login",
+        code_challenge: codeChallenge,
+        code_challenge_method: "S256",
+        state: randomHex(16),
+        response_type: "code",
+        client_id: DEVICE_CLIENT,
+      }).toString();
 
-  const emailPage = await follow(jar, authUrl);
-  let callbackUrl = emailPage.callbackUrl;
-
-  if (callbackUrl === undefined) {
-    assertNoTerms(emailPage.body);
-    const emailForm = extractHiddenInputs(emailPage.body);
-    if (!("_csrf" in emailForm) || !("hmac" in emailForm))
-      throw new VwAuthError(
-        "could not parse VW email login form (markup changed)",
-      );
-
-    const pwPage = await follow(
-      jar,
-      `${IDP}/signin-service/v1/${IDP_CLIENT}/login/identifier`,
-      {
-        method: "POST",
-        headers: { "content-type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({ ...emailForm, email: username }).toString(),
-      },
-    );
-    callbackUrl = pwPage.callbackUrl;
+    const emailPage = await follow(jar, authUrl, {}, 30, trace);
+    let callbackUrl = emailPage.callbackUrl;
 
     if (callbackUrl === undefined) {
-      assertNoTerms(pwPage.body);
-      const pwForm = {
-        _csrf: matchOne(pwPage.body, /csrf_token['":\s]+([\w.-]+)/i, "_csrf"),
-        relayState: matchOne(
-          pwPage.body,
-          /"relayState":"([^"]+)"/i,
-          "relayState",
-        ),
-        hmac: matchOne(pwPage.body, /"hmac":"([^"]+)"/i, "hmac"),
-        email: username,
-        password,
-      };
-      const authRes = await follow(
+      trace.stage = "identifier_form";
+      assertNoTerms(emailPage.body);
+      const emailForm = extractHiddenInputs(emailPage.body);
+      trace.elements({ csrf: "_csrf" in emailForm, hmac: "hmac" in emailForm });
+      if (!("_csrf" in emailForm) || !("hmac" in emailForm))
+        throw new VwAuthError(
+          "could not parse VW email login form (markup changed)",
+        );
+
+      trace.stage = "identifier";
+      const pwPage = await follow(
         jar,
-        `${IDP}/signin-service/v1/${IDP_CLIENT}/login/authenticate`,
+        `${IDP}/signin-service/v1/${IDP_CLIENT}/login/identifier`,
         {
           method: "POST",
           headers: { "content-type": "application/x-www-form-urlencoded" },
-          body: new URLSearchParams(pwForm).toString(),
+          body: new URLSearchParams({
+            ...emailForm,
+            email: username,
+          }).toString(),
         },
+        30,
+        trace,
       );
-      callbackUrl = authRes.callbackUrl;
+      callbackUrl = pwPage.callbackUrl;
+
       if (callbackUrl === undefined) {
-        if (/password_invalid|wrong-email-credentials/i.test(authRes.body))
-          throw new VwAuthError("Wrong email or password.");
-        if (/login\.error\.throttled/i.test(authRes.body))
-          throw new VwAuthError("VW login throttled — wait and retry.");
-        assertNoTerms(authRes.body);
-        throw new VwAuthError(
-          `Login did not reach the callback (HTTP ${String(authRes.res.status)}).`,
+        trace.stage = "password_form";
+        assertNoTerms(pwPage.body);
+        trace.elements({
+          csrf: /csrf_token['":\s]+([\w.-]+)/i.test(pwPage.body),
+          relayState: /"relayState":"([^"]+)"/i.test(pwPage.body),
+          hmac: /"hmac":"([^"]+)"/i.test(pwPage.body),
+        });
+        const pwForm = {
+          _csrf: matchOne(pwPage.body, /csrf_token['":\s]+([\w.-]+)/i, "_csrf"),
+          relayState: matchOne(
+            pwPage.body,
+            /"relayState":"([^"]+)"/i,
+            "relayState",
+          ),
+          hmac: matchOne(pwPage.body, /"hmac":"([^"]+)"/i, "hmac"),
+          email: username,
+          password,
+        };
+        trace.stage = "password";
+        const authRes = await follow(
+          jar,
+          `${IDP}/signin-service/v1/${IDP_CLIENT}/login/authenticate`,
+          {
+            method: "POST",
+            headers: { "content-type": "application/x-www-form-urlencoded" },
+            body: new URLSearchParams(pwForm).toString(),
+          },
+          30,
+          trace,
         );
+        callbackUrl = authRes.callbackUrl;
+        if (callbackUrl === undefined) {
+          if (/password_invalid|wrong-email-credentials/i.test(authRes.body))
+            throw new VwAuthError("Wrong email or password.");
+          if (/login\.error\.throttled/i.test(authRes.body))
+            throw new VwAuthError("VW login throttled — wait and retry.");
+          assertNoTerms(authRes.body);
+          throw new VwAuthError(
+            `Login did not reach the callback (HTTP ${String(authRes.res.status)}).`,
+          );
+        }
       }
     }
+
+    trace.stage = "callback";
+    const code = mergeUrlParams(callbackUrl).get("code");
+    if (code === null)
+      throw new VwAuthError("callback had no authorization code");
+
+    trace.stage = "token_exchange";
+    const res = await trace.fetch(`${API}/oidc/v1/token`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        accept: "application/json",
+        "user-agent": APP_UA,
+      },
+      body: new URLSearchParams({
+        play_integrity_token: PLAY_INTEGRITY_TOKEN,
+        grant_type: "authorization_code",
+        code,
+        client_id: DEVICE_CLIENT,
+        redirect_uri: REDIRECT_URI,
+        code_verifier: codeVerifier,
+      }).toString(),
+    });
+    if (!res.ok) {
+      await trace.tokenFailure(res);
+      throw new VwAuthError(`token exchange failed: ${String(res.status)}`);
+    }
+    trace.stage = "token_response";
+    const body: unknown = await res.json();
+    const result = tokensFrom(body as TokenResponse, codeVerifier);
+    trace.success();
+    return result;
+  } catch (error) {
+    trace.failure(error);
+    throw error;
   }
-
-  const code = mergeUrlParams(callbackUrl).get("code");
-  if (code === null)
-    throw new VwAuthError("callback had no authorization code");
-
-  const res = await fetch(`${API}/oidc/v1/token`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/x-www-form-urlencoded",
-      accept: "application/json",
-      "user-agent": APP_UA,
-    },
-    body: new URLSearchParams({
-      play_integrity_token: PLAY_INTEGRITY_TOKEN,
-      grant_type: "authorization_code",
-      code,
-      client_id: DEVICE_CLIENT,
-      redirect_uri: REDIRECT_URI,
-      code_verifier: codeVerifier,
-    }).toString(),
-  });
-  if (!res.ok)
-    throw new VwAuthError(`token exchange failed: ${String(res.status)}`);
-  const body: unknown = await res.json();
-  return tokensFrom(body as TokenResponse, codeVerifier);
 }
 
 /**
@@ -508,42 +546,63 @@ export async function vwRefresh(
   refreshToken: string,
   codeVerifier: string | null,
 ): Promise<VwTokens> {
-  const res = await fetch(`${API}/oidc/v1/token`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/x-www-form-urlencoded",
-      accept: "application/json",
-      "user-agent": APP_UA,
-    },
-    body: new URLSearchParams({
-      play_integrity_token: PLAY_INTEGRITY_TOKEN,
-      grant_type: "refresh_token",
-      client_id: DEVICE_CLIENT,
-      refresh_token: refreshToken,
-      ...(codeVerifier !== null ? { code_verifier: codeVerifier } : {}),
-    }).toString(),
-  });
-  if (!res.ok)
-    throw new VwAuthError(`token refresh failed: ${String(res.status)}`);
-  const body: unknown = await res.json();
-  const tokens = tokensFrom(body as TokenResponse, codeVerifier);
-  // Car-Net sometimes omits a new refresh token; keep the old one.
-  return { ...tokens, refreshToken: tokens.refreshToken ?? refreshToken };
+  const trace = new AuthTrace("refresh_token");
+  try {
+    const res = await trace.fetch(`${API}/oidc/v1/token`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        accept: "application/json",
+        "user-agent": APP_UA,
+      },
+      body: new URLSearchParams({
+        play_integrity_token: PLAY_INTEGRITY_TOKEN,
+        grant_type: "refresh_token",
+        client_id: DEVICE_CLIENT,
+        refresh_token: refreshToken,
+        ...(codeVerifier !== null ? { code_verifier: codeVerifier } : {}),
+      }).toString(),
+    });
+    if (!res.ok) {
+      await trace.tokenFailure(res);
+      throw new VwAuthError(`token refresh failed: ${String(res.status)}`);
+    }
+    trace.stage = "token_response";
+    const body: unknown = await res.json();
+    const tokens = tokensFrom(body as TokenResponse, codeVerifier);
+    // Car-Net sometimes omits a new refresh token; keep the old one.
+    trace.success();
+    return { ...tokens, refreshToken: tokens.refreshToken ?? refreshToken };
+  } catch (error) {
+    trace.failure(error);
+    throw error;
+  }
 }
 
 // ---- authenticated API -----------------------------------------------------
 async function apiGet<T>(bearer: string, path: string): Promise<T> {
-  const res = await fetch(`${API}${path}`, {
-    headers: {
-      authorization: `Bearer ${bearer}`,
-      accept: "application/json",
-      "user-agent": APP_UA,
-    },
-  });
-  if (res.status === 401) throw new VwAuthError("unauthorized");
-  if (!res.ok) throw new Error(`GET ${path} -> ${String(res.status)}`);
-  const body: unknown = await res.json();
-  return body as T;
+  const trace =
+    path === "/account/v1/garage" ? new AuthTrace("garage") : undefined;
+  try {
+    const init = {
+      headers: {
+        authorization: `Bearer ${bearer}`,
+        accept: "application/json",
+        "user-agent": APP_UA,
+      },
+    };
+    const res = trace
+      ? await trace.fetch(`${API}${path}`, init)
+      : await fetch(`${API}${path}`, init);
+    if (res.status === 401) throw new VwAuthError("unauthorized");
+    if (!res.ok) throw new Error(`GET ${path} -> ${String(res.status)}`);
+    const body: unknown = await res.json();
+    trace?.success();
+    return body as T;
+  } catch (error) {
+    trace?.failure(error);
+    throw error;
+  }
 }
 
 export async function vwGetVehicles(
@@ -685,56 +744,64 @@ async function vwSpinSession(
   uuid: string,
   spin: string,
 ): Promise<string> {
-  const ch = await fetch(`${API}/ss/v1/user/${userId}/challenge`, {
-    headers: {
-      authorization: `Bearer ${accessToken}`,
-      accept: "application/json",
-      "user-agent": APP_UA,
-    },
-  });
-  if (ch.status === 401) throw new VwAuthError("unauthorized");
-  if (!ch.ok)
-    throw new VwCommandError(`S-PIN challenge failed (${String(ch.status)})`);
-  const chRaw: unknown = await ch.json();
-  const chBody = chRaw as ChallengeResponse;
-  const challenge = chBody.data?.challenge;
-  const remaining = chBody.data?.remainingTries;
-  if (challenge === undefined)
-    throw new VwCommandError("VW returned no S-PIN challenge");
-  // Lockout early warning: this should sit at VW's maximum — a downward trend
-  // means something is burning attempts (a lockout needs a dealer/app reset).
-  console.log(
-    `[vw] S-PIN challenge remainingTries=${remaining === undefined ? "?" : String(remaining)}`,
-  );
-  // Stop well before VW locks the S-PIN; a lockout needs a dealer/app reset.
-  if (typeof remaining === "number" && remaining < 3)
-    throw new VwCommandError(
-      `Only ${String(remaining)} S-PIN attempts remain — refusing to risk a lockout. Check your PIN in the myVW app.`,
-    );
-
-  const spinHash = await sha512Hex(`${challenge}.${spin}`);
-  const sp = await fetch(
-    `${API}/ss/v1/user/${userId}/vehicle/${uuid}/session`,
-    {
-      method: "POST",
+  const trace = new AuthTrace("spin_challenge");
+  try {
+    const ch = await trace.fetch(`${API}/ss/v1/user/${userId}/challenge`, {
       headers: {
         authorization: `Bearer ${accessToken}`,
         accept: "application/json",
-        "content-type": "application/json",
         "user-agent": APP_UA,
       },
-      body: JSON.stringify({ idToken, spinHash, tsp: "WCT" }),
-    },
-  );
-  if (sp.status === 401) throw new VwAuthError("unauthorized");
-  if (sp.status === 403) throw new VwCommandError("Incorrect S-PIN.");
-  if (!sp.ok)
-    throw new VwCommandError(`S-PIN session failed (${String(sp.status)})`);
-  const spRaw: unknown = await sp.json();
-  const token = (spRaw as SpinSessionResponse).data?.carnetVehicleToken;
-  if (token === undefined)
-    throw new VwCommandError("VW returned no S-PIN session token");
-  return token;
+    });
+    if (ch.status === 401) throw new VwAuthError("unauthorized");
+    if (!ch.ok)
+      throw new VwCommandError(`S-PIN challenge failed (${String(ch.status)})`);
+    const chRaw: unknown = await ch.json();
+    const chBody = chRaw as ChallengeResponse;
+    const challenge = chBody.data?.challenge;
+    const remaining = chBody.data?.remainingTries;
+    if (challenge === undefined)
+      throw new VwCommandError("VW returned no S-PIN challenge");
+    // Lockout early warning: this should sit at VW's maximum — a downward trend
+    // means something is burning attempts (a lockout needs a dealer/app reset).
+    console.log(
+      `[vw] S-PIN challenge remainingTries=${typeof remaining === "number" && Number.isFinite(remaining) ? String(remaining) : "?"}`,
+    );
+    // Stop well before VW locks the S-PIN; a lockout needs a dealer/app reset.
+    if (typeof remaining === "number" && remaining < 3)
+      throw new VwCommandError(
+        `Only ${String(remaining)} S-PIN attempts remain — refusing to risk a lockout. Check your PIN in the myVW app.`,
+      );
+
+    const spinHash = await sha512Hex(`${challenge}.${spin}`);
+    trace.stage = "spin_session";
+    const sp = await trace.fetch(
+      `${API}/ss/v1/user/${userId}/vehicle/${uuid}/session`,
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${accessToken}`,
+          accept: "application/json",
+          "content-type": "application/json",
+          "user-agent": APP_UA,
+        },
+        body: JSON.stringify({ idToken, spinHash, tsp: "WCT" }),
+      },
+    );
+    if (sp.status === 401) throw new VwAuthError("unauthorized");
+    if (sp.status === 403) throw new VwCommandError("Incorrect S-PIN.");
+    if (!sp.ok)
+      throw new VwCommandError(`S-PIN session failed (${String(sp.status)})`);
+    const spRaw: unknown = await sp.json();
+    const token = (spRaw as SpinSessionResponse).data?.carnetVehicleToken;
+    if (token === undefined)
+      throw new VwCommandError("VW returned no S-PIN session token");
+    trace.success();
+    return token;
+  } catch (error) {
+    trace.failure(error);
+    throw error;
+  }
 }
 
 /**

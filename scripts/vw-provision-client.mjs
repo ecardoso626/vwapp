@@ -17,6 +17,7 @@ export async function provision({
   key,
   credentials,
   transport = globalThis.fetch,
+  diagnosticAttempt = false,
 }) {
   let parsed;
   try {
@@ -87,7 +88,16 @@ export async function provision({
   }
   await send("/health");
   const before = await send("/api/v1/account");
-  if (before.credentialsPresent !== false || before.state !== "unlinked")
+  const allowedFailure =
+    diagnosticAttempt &&
+    before.state === "reauthentication_required" &&
+    before.lastFailure === "authentication_failed" &&
+    before.session === "missing" &&
+    before.spinPresent === false;
+  if (
+    before.credentialsPresent !== false ||
+    (before.state !== "unlinked" && !allowedFailure)
+  )
     throw new ProvisionFailure(
       "Stored account state exists. Stop for review instead of reauthenticating.",
     );
@@ -124,8 +134,13 @@ if (
 ) {
   let key;
   try {
-    const [origin, keyPath] = process.argv.slice(2);
-    if (!origin || !keyPath || process.argv.length !== 4)
+    const [origin, keyPath, mode] = process.argv.slice(2);
+    if (
+      !origin ||
+      !keyPath ||
+      (process.argv.length !== 4 &&
+        !(process.argv.length === 5 && mode === "--diagnostic-attempt"))
+    )
       throw new ProvisionFailure("Use the interactive Python launcher.");
     const info = statSync(keyPath);
     if (
@@ -147,6 +162,7 @@ if (
       origin,
       key,
       credentials: JSON.parse(input),
+      diagnosticAttempt: mode === "--diagnostic-attempt",
     });
     input = "";
     process.stdout.write(JSON.stringify(result) + "\n");

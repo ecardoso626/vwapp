@@ -240,3 +240,55 @@ test("interactive launcher refuses piped credentials instead of falling back to 
   assert.match(p.stderr, /hidden interactive input is required/);
   assert.ok(!(p.stdout + p.stderr).includes(credentials.password));
 });
+
+const failedEmpty = {
+  state: "reauthentication_required",
+  credentialsPresent: false,
+  lastFailure: "authentication_failed",
+  session: "missing",
+  spinPresent: false,
+};
+const previousFailure = (value = failedEmpty) =>
+  route("GET", origin + "/api/v1/account", json(value));
+test("explicit diagnostic mode permits the reviewed empty failure exactly once per invocation", async () => {
+  await withFetchQueue(
+    [
+      health(),
+      previousFailure(),
+      route(
+        "POST",
+        origin + "/api/v1/account/credentials",
+        json({ error: "authentication_failed" }, 422),
+      ),
+    ],
+    async () => {
+      await assert.rejects(
+        provision({ ...options, diagnosticAttempt: true }),
+        /HTTP 422/,
+      );
+    },
+  );
+});
+test("without diagnostic mode a previous failed login still blocks credential submission", async () => {
+  await withFetchQueue([health(), previousFailure()], async () => {
+    await assert.rejects(provision(options), /Stored account state exists/);
+  });
+});
+test("diagnostic mode cannot bypass saved credentials, session or PIN checks", async () => {
+  for (const change of [
+    { credentialsPresent: true },
+    { session: "usable" },
+    { spinPresent: true },
+    { lastFailure: "status_read_failed" },
+  ]) {
+    await withFetchQueue(
+      [health(), previousFailure({ ...failedEmpty, ...change })],
+      async () => {
+        await assert.rejects(
+          provision({ ...options, diagnosticAttempt: true }),
+          /Stored account state exists/,
+        );
+      },
+    );
+  }
+});

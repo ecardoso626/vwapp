@@ -1,11 +1,13 @@
 import { DeviceRepository } from "../auth/devices";
 import { DeviceAuthService } from "../auth/service";
 import { pollAllVehicles } from "../src/poll";
+import { setPasswordLoginGuard } from "../src/vw/auth-diagnostics";
 import type { SqliteStorage } from "../storage/database";
 import { SecretRepository } from "../storage/secrets";
 import { NodeAccountApi } from "./account";
 import type { NodeConfig } from "./config";
 import { NodeLockCommands } from "./lock-commands";
+import { onePasswordLogin } from "./login-attempt";
 import { NodePassiveApi } from "./passive";
 import type { NodeServices } from "./runtime";
 import { NodeSqliteStore } from "./sqlite-store";
@@ -15,6 +17,11 @@ export function createNodeServices(
   storage: SqliteStorage,
   config: NodeConfig,
 ): NodeServices {
+  setPasswordLoginGuard(
+    config.passwordLoginMarker === undefined
+      ? undefined
+      : onePasswordLogin(config.passwordLoginMarker),
+  );
   const secrets = new SecretRepository(
     storage,
     config.masterKeyId,

@@ -1,3 +1,4 @@
+import { basename, dirname, isAbsolute } from "node:path";
 import { z } from "zod";
 import { validatePublicOrigin } from "../auth/nip98";
 import type { AppEnv } from "../src/env";
@@ -6,13 +7,14 @@ import { loadStorageConfig } from "../storage/config";
 export interface NodeConfig {
   host: string;
   port: number;
-  /** Off by default for local use; production Compose explicitly enables it. */
+  /** Off by default for local use; the diagnostic production Compose keeps it disabled. */
   schedulerEnabled: boolean;
   publicOrigin: string;
   sqlitePath: string;
   masterKeyId: string;
   masterKey: Buffer;
   env: AppEnv;
+  passwordLoginMarker?: string;
 }
 
 const schema = z.object({
@@ -20,6 +22,7 @@ const schema = z.object({
   NODE_PORT: z.coerce.number().int().min(0).max(65535).default(8788),
   BUZZKEY_SCHEDULER_ENABLED: z.enum(["true", "false"]).default("false"),
   NODE_PUBLIC_ORIGIN: z.string().min(1),
+  BUZZKEY_AUTH_ATTEMPT_MARKER: z.string().min(1).optional(),
 });
 
 /** The test mode permits an ephemeral port; production requires a fixed port. */
@@ -42,7 +45,18 @@ export function loadNodeConfig(
     throw new Error(
       "Invalid Node configuration: persistent BUZZKEY_SQLITE_PATH required",
     );
+  const marker = values.BUZZKEY_AUTH_ATTEMPT_MARKER;
+  if (
+    marker !== undefined &&
+    (!isAbsolute(marker) ||
+      dirname(marker) !== dirname(storage.path) ||
+      !/^auth-diagnostic-[a-z0-9-]+\.used$/.test(basename(marker)))
+  )
+    throw new Error(
+      "Invalid authentication attempt marker: require an auth-diagnostic-*.used file beside SQLite",
+    );
   return {
+    ...(marker === undefined ? {} : { passwordLoginMarker: marker }),
     host: values.NODE_HOST,
     port: values.NODE_PORT,
     schedulerEnabled: values.BUZZKEY_SCHEDULER_ENABLED === "true",
