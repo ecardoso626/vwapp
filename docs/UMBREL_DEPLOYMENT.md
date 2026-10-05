@@ -175,3 +175,42 @@ For the later post-authentication recreate and log capture, the committed helper
 old container logs before recreating, then records the new container and Serve
 configuration and startup logs. It verifies disabled scheduling before starting.
 Passwords for sudo are entered only into the operator's terminal.
+
+## Gate 2 outcome — authentication blocked, 2026-10-04
+
+The pre-credential forced recreate passed, including the existing Mac client's
+signed HTTPS access, persistent migrations/device records, external key continuity,
+disabled scheduler and unchanged Tailscale/Funnel routes.
+
+The operator ran the hidden-input provisioning client. The captured post-attempt
+container log contains exactly one full password-login start, one sanitized login
+failure, and zero successful logins. The operator reported running the local command
+again; no second password-login start appears in the captured log. The helper
+refuses credential submission when a prior account-state record is no longer
+`unlinked`; no state was reset to force another attempt.
+
+The cached connection reports `reauthentication_required` / `authentication_failed`,
+with no credentials, S-PIN or session present. Account, secret, vehicle, current-state,
+observation, command and climate-session tables remain empty. SQLite integrity is
+`ok`; private HTTPS health still returns 200 and signed cached account access works.
+
+Every captured log line matched a known fixed safe message or Node SQLite warning.
+The production master key was absent, and no authorization/token markers were
+found. No raw upstream response or decrypted secret was printed. The safe error
+surface does not distinguish rejected credentials, identity-provider flow changes,
+throttling or token-exchange incompatibility; no specific protocol defect is
+established by this evidence.
+
+Live VW authentication and discovery did not pass. SOC, range, odometer, lock state,
+doors/windows, charging/plug/target, climate, coordinates and freshness were not
+retrieved. Session reuse, live-secret encryption-at-rest verification, live VW
+persistence, post-connection recreate and production backup validation remain
+blocked. This is not evidence of a cryptographic or persistence defect: no live VW
+material reached storage. The existing deployment/device persistence checks passed.
+
+The live flow stopped after the failed authentication. Scheduler remains disabled;
+no wake or other physical vehicle mutation was issued. No VW protocol code was
+changed. Further authentication investigation requires a separately reviewed next
+step, not repeated credential submissions. Complete the passive-read gate before
+considering any separately authorized live command; the first proposed command
+validation would be a single wake followed by bounded passive observation, then stop.
